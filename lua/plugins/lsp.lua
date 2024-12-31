@@ -64,6 +64,7 @@ return {
 
       require('mason').setup()
       require('mason-lspconfig').setup {
+        ensure_installed = {"pyright", "lua", "html", "css", "json", "yaml", "bash", "vim", "typescript", "r", "dot", "marksman", "emmet", "otter"},
         automatic_installation = true,
       }
       require('mason-tool-installer').setup {

@@ -2,6 +2,12 @@
 
 local animals = require('misc.style').animals
 
+-- Personal preferences
+vim.opt.wrap = true
+vim.opt.showbreak = '↪'
+vim.opt.columns = 80
+vim.opt.linebreak = true
+
 -- proper colors
 vim.opt.termguicolors = true
 
