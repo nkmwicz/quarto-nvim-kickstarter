@@ -1,6 +1,81 @@
 
 return {
+  {
+    "vigoux/ltex-ls.nvim",
+    -- No requires = 'neovim/nvim-lspconfig' as advised by plugin author
+    config = function()
+      -- Set JAVA_HOME explicitly within Neovim
+      vim.env.JAVA_HOME = "/usr/local/bin/ltex-ls/jdk-11.0.12+7"
+      vim.env.PATH = vim.env.PATH .. ":" .. vim.env.JAVA_HOME .. "/bin"
+      
+      require "ltex-ls".setup {
+        use_spellfile = false,
+        window_border = "single",
+        filetypes = { "latex", "tex", "bib", "markdown", "gitcommit", "text", "quarto" }, -- Add relevant filetypes
+        settings = {
+          ltex = {
+            enabled = { "latex", "tex", "bib", "markdown", "quarto" },
+            language = {"en", "fr"},
+            diagnosticSeverity = "information",
+            sentenceCacheSize = 2000,
+            additionalRules = {
+              enablePickyRules = true,
+              motherTongue = "en", -- Set your mother tongue
+            },
+            disabledRules = {
+              fr = { "APOS_TYP", "FRENCH_WHITESPACE" }, -- Disable specific rules
+            },
+            dictionary = (function()
+              local files = {}
+              for _, file in ipairs(vim.api.nvim_get_runtime_file("dict/*", true)) do
+                local lang = vim.fn.fnamemodify(file, ":t:r")
+                local fullpath = vim.fs.normalize(file, { absolute = true })
+                files[lang] = { ":" .. fullpath }
+              end
 
+              if files.default then
+                for lang, _ in pairs(files) do
+                  if lang ~= "default" then
+                    vim.list_extend(files[lang], files.default)
+                  end
+                end
+                files.default = nil
+              end
+              return files
+            end)(),
+          },
+        },
+        on_attach = function(client, bufnr)
+          -- Enable completion if you are using nvim-cmp
+          local function buf_set_option(opt, value)
+            vim.api.nvim_buf_set_option(bufnr, opt, value)
+          end
+          buf_set_option('omnifunc', 'v:lua.vim.lsp.omnifunc')
+
+          -- Mappings.
+          local opts = { noremap=true, silent=true }
+          vim.keymap.set('n', 'gD', vim.lsp.buf.declaration, opts)
+          vim.keymap.set('n', 'gd', vim.lsp.buf.definition, opts)
+          vim.keymap.set('n', 'K', vim.lsp.buf.hover, opts)
+          vim.keymap.set('n', 'gi', vim.lsp.buf.implementation, opts)
+          vim.keymap.set('n', '<C-k>', vim.lsp.buf.signature_help, opts)
+          vim.keymap.set('n', '<space>wa', vim.lsp.buf.add_workspace_folder, opts)
+          vim.keymap.set('n', '<space>wr', vim.lsp.buf.remove_workspace_folder, opts)
+          vim.keymap.set('n', '<space>wl', function()
+            print(vim.inspect(vim.lsp.buf.list_workspace_folders()))
+          end, opts)
+          vim.keymap.set('n', '<space>D', vim.lsp.buf.type_definition, opts)
+          vim.keymap.set('n', '<space>rn', vim.lsp.buf.rename, opts)
+          vim.keymap.set('n', '<space>ca', vim.lsp.buf.code_action, opts)
+          vim.keymap.set('n', '<space>e', vim.diagnostic.open_float, opts)
+          vim.keymap.set('n', '[d', vim.diagnostic.goto_prev, opts)
+          vim.keymap.set('n', ']d', vim.diagnostic.goto_next, opts)
+          vim.keymap.set('n', '<space>q', vim.diagnostic.setloclist, opts)
+          vim.keymap.set('n', '<space>f', function() vim.lsp.buf.format { async = true } end, opts)
+        end,
+      }
+    end,
+  },
   {
 
     -- for lsp features in code cells / embedded code
@@ -64,7 +139,22 @@ return {
 
       require('mason').setup()
       require('mason-lspconfig').setup {
-        ensure_installed = {"pyright", "lua", "html", "css", "json", "yaml", "bash", "vim", "typescript", "r", "dot", "marksman", "emmet", "otter"},
+        ensure_installed = {
+              "pyright",
+              "lua_ls",  -- Corrected server name for Lua
+              "html",
+              "cssls",
+              "jsonls",
+              "yamlls",
+              "bashls",
+              "vimls",
+              "tsserver",
+              "r_language_server",
+              "dotls",
+              "marksman",
+              "emmet_ls",
+              "ltex"
+        },
         automatic_installation = true,
       }
       require('mason-tool-installer').setup {
@@ -75,6 +165,8 @@ return {
           'isort',
           'tree-sitter-cli',
           'jupytext',
+          'eslint_d',
+          'prettier',
         },
       }
 
@@ -315,6 +407,8 @@ return {
           return util.root_pattern('.git', 'setup.py', 'setup.cfg', 'pyproject.toml', 'requirements.txt')(fname) or util.path.dirname(fname)
         end,
       }
+
+      -- vim.api.nvim_set_keymap('n', '<leader>ca', '<cmd>lua vim.lsp.buf.code_action()<CR>', { noremap = true, silent = true })
     end,
   },
 }
