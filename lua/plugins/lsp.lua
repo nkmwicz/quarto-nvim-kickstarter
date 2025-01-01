@@ -7,7 +7,7 @@ return {
       -- Set JAVA_HOME explicitly within Neovim
       vim.env.JAVA_HOME = "/usr/local/bin/ltex-ls/jdk-11.0.12+7"
       vim.env.PATH = vim.env.PATH .. ":" .. vim.env.JAVA_HOME .. "/bin"
-      
+
       require "ltex-ls".setup {
         use_spellfile = false,
         window_border = "single",
@@ -20,6 +20,7 @@ return {
             sentenceCacheSize = 2000,
             additionalRules = {
               enablePickyRules = true,
+              languageModel = 'en',
               motherTongue = "en", -- Set your mother tongue
             },
             disabledRules = {
@@ -56,7 +57,7 @@ return {
           local opts = { noremap=true, silent=true }
           vim.keymap.set('n', 'gD', vim.lsp.buf.declaration, opts)
           vim.keymap.set('n', 'gd', vim.lsp.buf.definition, opts)
-          vim.keymap.set('n', 'K', vim.lsp.buf.hover, opts)
+          vim.keymap.set('n', '<leader>k', vim.lsp.buf.hover, opts)
           vim.keymap.set('n', 'gi', vim.lsp.buf.implementation, opts)
           vim.keymap.set('n', '<C-k>', vim.lsp.buf.signature_help, opts)
           vim.keymap.set('n', '<space>wa', vim.lsp.buf.add_workspace_folder, opts)

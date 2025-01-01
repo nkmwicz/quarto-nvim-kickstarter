@@ -23,6 +23,9 @@ local cmap = function(key, effect)
   vim.keymap.set('c', key, effect, { silent = true, noremap = true })
 end
 
+-- open code actions with ctrl-. in normal mode
+nmap('<C-.>', '<cmd>lua vim.lsp.buf.code_action()<cr>')
+
 -- move in command line
 cmap('<C-a>', '<Home>')
 
