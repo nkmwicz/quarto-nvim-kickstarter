@@ -30,6 +30,15 @@ cmap('<C-a>', '<Home>')
 imap('<C-s>', '<esc>:update<cr><esc>')
 nmap('<C-s>', '<cmd>:update<cr><esc>')
 
+-- move  up and down softwrapped text
+nmap('<leader>k', '<cmd>lua vim.lsp.buf.hover()<cr>')
+nmap('J', 'gj')
+nmap('K', 'gk')
+
+-- Move lines up and down in visual mode
+vmap('J',  ":m '>+1<CR>gv=gv")
+vmap('K', ":m '<-2<CR>gv=gv")
+
 -- Move between windows using <ctrl> direction
 nmap('<C-j>', '<C-W>j')
 nmap('<C-k>', '<C-W>k')

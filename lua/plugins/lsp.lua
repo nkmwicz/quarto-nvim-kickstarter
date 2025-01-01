@@ -189,7 +189,7 @@ return {
           map('gS', vim.lsp.buf.document_symbol, '[g]o so [S]ymbols')
           map('gD', vim.lsp.buf.type_definition, '[g]o to type [D]efinition')
           map('gd', vim.lsp.buf.definition, '[g]o to [d]efinition')
-          map('K', vim.lsp.buf.hover, '[K] hover documentation')
+          map('<leader>k', vim.lsp.buf.hover, '<leader>[k] hover documentation')
           map('gh', vim.lsp.buf.signature_help, '[g]o to signature [h]elp')
           map('gI', vim.lsp.buf.implementation, '[g]o to [I]mplementation')
           map('gr', vim.lsp.buf.references, '[g]o to [r]eferences')
