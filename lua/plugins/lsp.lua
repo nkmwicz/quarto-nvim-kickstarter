@@ -20,7 +20,7 @@ return {
             sentenceCacheSize = 2000,
             additionalRules = {
               enablePickyRules = true,
-              languageModel = 'en',
+              languageModel = "en",
               motherTongue = "en", -- Set your mother tongue
             },
             disabledRules = {
@@ -44,7 +44,11 @@ return {
               end
               return files
             end)(),
-          },
+            hiddenFalsePositives = {
+              en = { '{"rule": "", "sentence": "\\\\\\\\^\\\\w+"}', '{"rule": "", "sentence": "Thisproject"}' },  -- Ignore caret followed by a word character
+              fr = { '{"rule":"MORFOLOGIK_RULE_FR", "sentence":"\\\\^\\\\w"}' }
+            },
+          }, 
         },
       }
     end,
@@ -142,6 +146,28 @@ return {
           'prettier',
         },
       }
+
+      -- create footnote highliter
+      local function quarto_highlighter()
+        -- Clear Existing syntax for this group (important for reloads)
+        vim.api.nvim_command("silent! syntax clear QuartoFootnote")
+
+        -- Define Syntax to Match pattern Text^[Footnote]
+        vim.api.nvim_command([[ 
+          syntax match QuartoFootnote /\^\[.\{-}\]/ contains=@Spell
+        ]])
+        vim.api.nvim_command("highlight link QuartoFootnote Special")
+      end
+
+      vim.api.nvim_create_autocmd({"BufRead", "BufNewFile" }, {
+        pattern = { "*.md", "*.markdown", "*.qmd" },
+        callback = quarto_highlighter,
+      }) 
+
+      -- Apply syntax highlighting immediately
+      if vim.bo.filetype == "markdown" or vim.bo.filetype == "quarto" then
+        quarto_highlighter()
+      end
 
       vim.api.nvim_create_autocmd('LspAttach', {
         group = vim.api.nvim_create_augroup('kickstart-lsp-attach', { clear = true }),

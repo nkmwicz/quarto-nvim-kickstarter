@@ -216,6 +216,13 @@ end
 
 -- normal mode
 wk.add({
+    {"<leader>ccq", function ()
+      local input = vim.fn.input("Quick Chat: ")
+      if input ~= "" then
+        require("CopilotChat").ask(input, { selection = require("CopilotChat.select").buffer })
+      end
+    end,
+    desc = "CopilotChat - Quick chat"},
     { "<c-LeftMouse>", "<cmd>lua vim.lsp.buf.definition()<CR>", desc = "go to definition" },
     { "<c-q>", "<cmd>q<cr>", desc = "close buffer" },
     { "<cm-i>", insert_py_chunk, desc = "python code chunk" },

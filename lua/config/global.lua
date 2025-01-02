@@ -53,7 +53,7 @@ vim.opt.breakindent = true
 -- Sets how neovim will display certain whitespace in the editor.
 --  See :help 'list'
 --  and :help 'listchars'
-vim.opt.list = true
+vim.opt.list = false
 vim.opt.listchars = { tab = '» ', trail = '·', nbsp = '␣' }
 
 -- consistent number column
@@ -111,7 +111,10 @@ vim.opt.conceallevel = 0
 
 -- diagnostics
 vim.diagnostic.config {
-  virtual_text = true,
+  virtual_text = {
+    spacing = 2,
+    wrap = true
+  },
   underline = true,
   signs = true,
 }
