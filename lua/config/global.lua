@@ -4,9 +4,12 @@ local animals = require('misc.style').animals
 
 -- Personal preferences
 vim.opt.wrap = true
-vim.opt.breakindent = true
 vim.opt.showbreak = '>>> '
 vim.opt.linebreak = true
+
+-- indent
+vim.opt.smartindent = true
+vim.opt.breakindent = true
 
 -- proper colors
 vim.opt.termguicolors = true
@@ -46,9 +49,6 @@ vim.g.maplocalleader = ' '
 vim.opt.ignorecase = true
 vim.opt.smartcase = true
 
--- indent
-vim.opt.smartindent = true
-vim.opt.breakindent = true
 
 -- Sets how neovim will display certain whitespace in the editor.
 --  See :help 'list'

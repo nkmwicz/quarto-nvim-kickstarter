@@ -10,7 +10,7 @@ vim.b['reticulate_running'] = false
 vim.wo.wrap = true
 vim.wo.linebreak = true
 vim.wo.breakindent = true
-vim.wo.showbreak = '|'
+vim.wo.showbreak = '>>> '
 
 -- don't run vim ftplugin on top
 vim.api.nvim_buf_set_var(0, 'did_ftplugin', true)
