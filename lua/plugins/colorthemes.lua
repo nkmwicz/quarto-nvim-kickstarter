@@ -2,6 +2,7 @@ return {
   { 'shaunsingh/nord.nvim', enabled = false, lazy = false, priority = 1000 },
   { 'folke/tokyonight.nvim', enabled = false, lazy = false, priority = 1000 },
   { 'EdenEast/nightfox.nvim', enabled = false, lazy = false, priority = 1000 },
+  { 'Mofiqul/vscode.nvim', enabled = true, lazy = false, priority = 1000 },
   {
     'catppuccin/nvim',
     name = 'catppuccin',
@@ -36,7 +37,20 @@ return {
     lazy = false,
     priority = 1000,
     config = function()
-      require('kanagawa').setup {
+      require('kanagawa').setup({
+        compile = false,             -- enable compiling the colorscheme
+        undercurl = true,            -- enable undercurls
+        commentStyle = { italic = true },
+        functionStyle = { italic = true, bold = true},
+        keywordStyle = { italic = true },
+        statementStyle = { bold = true },
+        typeStyle = {},
+        transparent = false,         -- do not set background color
+        dimInactive = true,         -- dim inactive window `:h hl-NormalNC`
+        terminalColors = true,       -- define vim.g.terminal_color_{0,17}
+        overrides = function(colors)
+          return {}
+        end,
         colors = {
           theme = {
             all = {
@@ -46,7 +60,12 @@ return {
             },
           },
         },
-      }
+        theme = 'wave',
+        background = {
+          dark = 'wave',
+          light = 'lotus'
+        }
+      })
       vim.cmd.colorscheme 'kanagawa'
       vim.api.nvim_set_hl(0, 'TermCursor', { fg = '#A6E3A1', bg = '#A6E3A1' })
     end,

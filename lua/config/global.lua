@@ -1,4 +1,4 @@
--- global options
+--**Presentations** global options
 
 local animals = require('misc.style').animals
 
@@ -111,12 +111,12 @@ vim.opt.conceallevel = 0
 
 -- diagnostics
 vim.diagnostic.config {
-  virtual_text = {
-    spacing = 2,
-    wrap = true
-  },
+  virtual_text = true,
   underline = true,
   signs = true,
+  float = {
+    border = "rounded"
+  }
 }
 
 -- add new filetypes
