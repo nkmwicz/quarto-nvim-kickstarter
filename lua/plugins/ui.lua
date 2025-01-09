@@ -171,7 +171,7 @@ return {
 
   { -- nicer-looking tabs with close icons
     'nanozuki/tabby.nvim',
-    enabled = false,
+    enabled = true,
     config = function()
       require('tabby.tabline').use_preset 'tab_only'
     end,
@@ -187,7 +187,7 @@ return {
 
   { -- highlight occurences of current word
     'RRethy/vim-illuminate',
-    enabled = false,
+    enabled = true,
   },
 
   {
@@ -319,7 +319,7 @@ return {
 
   { -- highlight markdown headings and code blocks etc.
     'lukas-reineke/headlines.nvim',
-    enabled = false,
+    enabled = true,
     dependencies = 'nvim-treesitter/nvim-treesitter',
     config = function()
       require('headlines').setup {

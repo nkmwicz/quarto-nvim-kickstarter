@@ -2,6 +2,12 @@
 
 local animals = require('misc.style').animals
 
+-- Function to get the current Git branch
+_G.get_git_branch = function()
+  local branch = vim.fn.system('git rev-parse --abbrev-ref HEAD 2>/dev/null'):gsub('%s+', '')
+  return branch ~= '' and branch or 'no branch'
+end
+
 -- Personal preferences
 vim.opt.wrap = true
 vim.opt.showbreak = '>>> '
@@ -82,7 +88,8 @@ let g:currentmode={
 
 math.randomseed(os.time())
 local i = math.random(#animals)
-vim.opt.statusline = '%{%g:currentmode[mode()]%} %{%reg_recording()%} %* %t | %y | %* %= c:%c l:%l/%L %p%% %#NonText# ' .. animals[i] .. ' %*'
+
+vim.opt.statusline = '%{%g:currentmode[mode()]%} Branch=%{v:lua.get_git_branch()} %* %t | %y | %* %= c:%c l:%l/%L %p%% %#NonText# ' .. animals[i] .. ' %*'
 
 -- hide cmdline when not used
 vim.opt.cmdheight = 1

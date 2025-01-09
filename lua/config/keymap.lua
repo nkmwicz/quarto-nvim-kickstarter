@@ -271,7 +271,7 @@ wk.add({
 }, { mode = 'i' })
 
 local function new_terminal(lang)
-  vim.cmd('vsplit term://' .. lang)
+  vim.cmd('vsplit term://%:p:h//' .. lang)
 end
 
 local function new_terminal_python()

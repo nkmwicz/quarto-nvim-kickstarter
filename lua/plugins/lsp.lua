@@ -1,4 +1,3 @@
-
 return {
   {
     "vigoux/ltex-ls.nvim",
@@ -15,7 +14,7 @@ return {
         settings = {
           ltex = {
             enabled = { "latex", "tex", "bib", "markdown", "quarto" },
-            language = {"en", "fr"},
+            language = { "en", "fr" },
             diagnosticSeverity = "information",
             sentenceCacheSize = 2000,
             additionalRules = {
@@ -24,6 +23,7 @@ return {
               motherTongue = "en", -- Set your mother tongue
             },
             disabledRules = {
+              en = { "EN_QUOTES"},
               fr = { "APOS_TYP", "FRENCH_WHITESPACE" }, -- Disable specific rules
             },
             dictionary = (function()
@@ -45,10 +45,10 @@ return {
               return files
             end)(),
             hiddenFalsePositives = {
-              en = { '{"rule": "", "sentence": "\\\\\\\\^\\\\w+"}', '{"rule": "", "sentence": "Thisproject"}' },  -- Ignore caret followed by a word character
+              en = { '{"rule": "", "sentence": "\\\\\\\\^\\\\w+"}', '{"rule": "", "sentence": "Thisproject"}' }, -- Ignore caret followed by a word character
               fr = { '{"rule":"MORFOLOGIK_RULE_FR", "sentence":"\\\\^\\\\w"}' }
             },
-          }, 
+          },
         },
       }
     end,
@@ -96,7 +96,7 @@ return {
           },
         },
         { 'Bilal2453/luvit-meta', lazy = true }, -- optional `vim.uv` typings
-        { -- optional completion source for require statements and module annotations
+        {                                        -- optional completion source for require statements and module annotations
           'hrsh7th/nvim-cmp',
           opts = function(_, opts)
             opts.sources = opts.sources or {}
@@ -117,20 +117,21 @@ return {
       require('mason').setup()
       require('mason-lspconfig').setup {
         ensure_installed = {
-              "pyright",
-              "lua_ls",  -- Corrected server name for Lua
-              "html",
-              "cssls",
-              "jsonls",
-              "yamlls",
-              "bashls",
-              "vimls",
-              "tsserver",
-              "r_language_server",
-              "dotls",
-              "marksman",
-              "emmet_ls",
-              "ltex"
+          "pyright",
+          "lua_ls", -- Corrected server name for Lua
+          "html",
+          "cssls",
+          "jsonls",
+          "yamlls",
+          "bashls",
+          "vimls",
+          "r_language_server",
+          "dotls",
+          "marksman",
+          "tailwindcss",
+          "emmet_ls",
+          "ltex",
+          "ts_ls",
         },
         automatic_installation = true,
       }
@@ -139,6 +140,7 @@ return {
           'black',
           'stylua',
           'shfmt',
+          'tailwindcss',
           'isort',
           'tree-sitter-cli',
           'jupytext',
@@ -153,16 +155,16 @@ return {
         vim.api.nvim_command("silent! syntax clear QuartoFootnote")
 
         -- Define Syntax to Match pattern Text^[Footnote]
-        vim.api.nvim_command([[ 
+        vim.api.nvim_command([[
           syntax match QuartoFootnote /\^\[.\{-}\]/ contains=@Spell
         ]])
         vim.api.nvim_command("highlight link QuartoFootnote Special")
       end
 
-      vim.api.nvim_create_autocmd({"BufRead", "BufNewFile" }, {
+      vim.api.nvim_create_autocmd({ "BufRead", "BufNewFile" }, {
         pattern = { "*.md", "*.markdown", "*.qmd" },
         callback = quarto_highlighter,
-      }) 
+      })
 
       -- Apply syntax highlighting immediately
       if vim.bo.filetype == "markdown" or vim.bo.filetype == "quarto" then
@@ -192,8 +194,8 @@ return {
           map('gh', vim.lsp.buf.signature_help, '[g]o to signature [h]elp')
           map('gI', vim.lsp.buf.implementation, '[g]o to [I]mplementation')
           map('gr', vim.lsp.buf.references, '[g]o to [r]eferences')
-          map('[d', function () vim.diagnostic.jump({count = 1}) end,'previous [d]iagnostic ')
-          map(']d', function () vim.diagnostic.jump({count = -1}) end, 'next [d]iagnostic ')
+          map('[d', function() vim.diagnostic.jump({ count = 1 }) end, 'previous [d]iagnostic ')
+          map(']d', function() vim.diagnostic.jump({ count = -1 }) end, 'next [d]iagnostic ')
           map('<leader>ll', vim.lsp.codelens.run, '[l]ens run')
           map('<leader>lR', vim.lsp.buf.rename, '[l]sp [R]ename')
           map('<leader>lf', vim.lsp.buf.format, '[l]sp [f]ormat')
@@ -207,8 +209,10 @@ return {
         debounce_text_changes = 150,
       }
 
-      vim.lsp.handlers['textDocument/hover'] = vim.lsp.with(vim.lsp.handlers.hover, { border = require('misc.style').border })
-      vim.lsp.handlers['textDocument/signatureHelp'] = vim.lsp.with(vim.lsp.handlers.signature_help, { border = require('misc.style').border })
+      vim.lsp.handlers['textDocument/hover'] = vim.lsp.with(vim.lsp.handlers.hover,
+        { border = require('misc.style').border })
+      vim.lsp.handlers['textDocument/signatureHelp'] = vim.lsp.with(vim.lsp.handlers.signature_help,
+        { border = require('misc.style').border })
 
       local capabilities = vim.lsp.protocol.make_client_capabilities()
       capabilities = vim.tbl_deep_extend('force', capabilities, require('cmp_nvim_lsp').default_capabilities())
@@ -277,7 +281,7 @@ return {
       lspconfig.ts_ls.setup {
         capabilities = capabilities,
         flags = lsp_flags,
-        filetypes = { 'js', 'javascript', 'typescript', 'ojs' },
+        filetypes = { 'js', 'javascript', 'typescript', 'ojs', 'typescriptreact', 'ts', 'tsx', 'jsx', 'javascriptreact' },
       }
 
       local function get_quarto_resource_path()
@@ -364,16 +368,16 @@ return {
       --   flags = lsp_flags,
       -- }
 
-      lspconfig.rust_analyzer.setup{
+      lspconfig.rust_analyzer.setup {
         capabilities = capabilities,
         settings = {
           ['rust-analyzer'] = {
             diagnostics = {
-              enable = false;
+              enable = false,
             }
           }
         }
-     }
+      }
 
       -- lspconfig.ruff_lsp.setup {
       --   capabilities = capabilities,
@@ -403,7 +407,8 @@ return {
           },
         },
         root_dir = function(fname)
-          return util.root_pattern('.git', 'setup.py', 'setup.cfg', 'pyproject.toml', 'requirements.txt')(fname) or util.path.dirname(fname)
+          return util.root_pattern('.git', 'setup.py', 'setup.cfg', 'pyproject.toml', 'requirements.txt')(fname) or
+              util.path.dirname(fname)
         end,
       }
     end,
