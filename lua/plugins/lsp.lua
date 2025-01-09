@@ -411,6 +411,16 @@ return {
               util.path.dirname(fname)
         end,
       }
+
+      -- Configure black as a formatter for Python files
+      vim.api.nvim_create_autocmd("BufWritePre", {
+        pattern = { "*.py", "*.qmd" },
+        callback = function()
+          if vim.bo.filetype == "python" or vim.bo.filetype == "quarto" then
+            vim.lsp.buf.format({ async = false })
+          end
+        end,
+      })
     end,
   },
 }
