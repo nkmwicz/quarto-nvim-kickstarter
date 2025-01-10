@@ -145,4 +145,21 @@ return {
       'nvim-lua/plenary.nvim',
     },
   },
+  
+  -- Add word count and read time
+  {
+    'skwee357/nvim-prose',
+    enabled = true,
+    config = function ()
+      require('nvim-prose').setup {
+        wpm = 200.0,
+        filetypes = {'markdown', 'asciidoc', 'quarto'},
+        placeholders = {
+          words = 'words',
+          minutes = 'min'
+        }
+      }
+    end
+  },
+  
 }

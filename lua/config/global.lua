@@ -8,6 +8,16 @@ _G.get_git_branch = function()
   return branch ~= '' and branch or 'no branch'
 end
 
+_G.get_word_count = function()
+  local prose = require('nvim-prose')
+  if prose.is_available() then
+    local word_count = prose.word_count()
+    return word_count or 'N/A' 
+  else
+    return ''
+  end
+end
+
 -- Personal preferences
 vim.opt.wrap = true
 vim.opt.showbreak = '>>> '
@@ -89,7 +99,7 @@ let g:currentmode={
 math.randomseed(os.time())
 local i = math.random(#animals)
 
-vim.opt.statusline = '%{%g:currentmode[mode()]%} Branch=%{v:lua.get_git_branch()} %* %t | %y | %* %= c:%c l:%l/%L %p%% %#NonText# ' .. animals[i] .. ' %*'
+vim.opt.statusline = '%{%g:currentmode[mode()]%} Branch=%{v:lua.get_git_branch()} %* %t | %y | %* %= w-ct:%{v:lua.get_word_count()} c:%c l:%l/%L %p%% %#NonText# ' .. animals[i] .. ' %*'
 
 -- hide cmdline when not used
 vim.opt.cmdheight = 1
