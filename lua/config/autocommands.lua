@@ -31,3 +31,9 @@ vim.api.nvim_create_autocmd('TextYankPost', {
     vim.highlight.on_yank()
   end,
 })
+
+-- open PDF files in default PDF viewer on system
+vim.api.nvim_create_autocmd({"BufReadPost"}, {
+  pattern = "*.pdf",
+  command = "silent !xdg-open % &",
+})

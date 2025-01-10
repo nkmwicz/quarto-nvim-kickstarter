@@ -14,7 +14,7 @@ _G.get_word_count = function()
     local word_count = prose.word_count()
     return word_count or 'N/A' 
   else
-    return ''
+    return 'N/A'
   end
 end
 
