@@ -30,11 +30,11 @@ return {
     'stevearc/conform.nvim',
     enabled = true,
     keys = {
-      { '<leader>cf', '<cmd>lua require("conform").format()<cr>', desc = "[f]ormat" },
+      { '<leader>cf', '<cmd>lua require("conform").format()<cr>', desc = '[f]ormat' },
     },
     config = function()
       require('conform').setup {
-        notify_on_error = false,
+        notify_on_error = true,
         format_on_save = {
           timeout_ms = 500,
           lsp_fallback = true,
@@ -43,6 +43,10 @@ return {
           lua = { 'mystylua' },
           python = { 'isort', 'black' },
           quarto = { 'injected' },
+          javascript = { 'prettierd', 'prettier', stop_after_first = true },
+          typescript = { 'prettierd', 'prettier', stop_after_first = true },
+          javascriptreact = { 'prettierd', 'prettier', stop_after_first = true },
+          typescriptreact = { 'prettierd', 'prettier', stop_after_first = true },
         },
         formatters = {
           mystylua = {
@@ -145,21 +149,20 @@ return {
       'nvim-lua/plenary.nvim',
     },
   },
-  
+
   -- Add word count and read time
   {
     'skwee357/nvim-prose',
     enabled = true,
-    config = function ()
+    config = function()
       require('nvim-prose').setup {
         wpm = 200.0,
-        filetypes = {'markdown', 'asciidoc', 'quarto'},
+        filetypes = { 'markdown', 'asciidoc', 'quarto' },
         placeholders = {
           words = 'words',
-          minutes = 'min'
-        }
+          minutes = 'min',
+        },
       }
-    end
+    end,
   },
-  
 }
