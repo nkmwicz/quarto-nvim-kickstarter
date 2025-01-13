@@ -1,42 +1,42 @@
 return {
   {
-    "vigoux/ltex-ls.nvim",
+    'vigoux/ltex-ls.nvim',
     -- No requires = 'neovim/nvim-lspconfig' as advised by plugin author
     config = function()
       -- Set JAVA_HOME explicitly within Neovim
-      vim.env.JAVA_HOME = "/usr/local/bin/ltex-ls/jdk-11.0.12+7"
-      vim.env.PATH = vim.env.PATH .. ":" .. vim.env.JAVA_HOME .. "/bin"
+      vim.env.JAVA_HOME = '/usr/local/bin/ltex-ls/jdk-11.0.12+7'
+      vim.env.PATH = vim.env.PATH .. ':' .. vim.env.JAVA_HOME .. '/bin'
 
-      require "ltex-ls".setup {
+      require('ltex-ls').setup {
         use_spellfile = false,
-        window_border = "single",
-        filetypes = { "latex", "tex", "bib", "markdown", "gitcommit", "text", "quarto" }, -- Add relevant filetypes
+        window_border = 'single',
+        filetypes = { 'latex', 'tex', 'bib', 'markdown', 'gitcommit', 'text', 'quarto' }, -- Add relevant filetypes
         settings = {
           ltex = {
-            enabled = { "latex", "tex", "bib", "markdown", "quarto" },
-            language = { "en", "fr" },
-            diagnosticSeverity = "information",
+            enabled = { 'latex', 'tex', 'bib', 'markdown', 'quarto' },
+            language = { 'en', 'fr' },
+            diagnosticSeverity = 'information',
             sentenceCacheSize = 2000,
             additionalRules = {
               enablePickyRules = true,
-              languageModel = "en",
-              motherTongue = "en", -- Set your mother tongue
+              languageModel = 'en',
+              motherTongue = 'en', -- Set your mother tongue
             },
             disabledRules = {
-              en = { "EN_QUOTES"},
-              fr = { "APOS_TYP", "FRENCH_WHITESPACE" }, -- Disable specific rules
+              en = { 'EN_QUOTES' },
+              fr = { 'APOS_TYP', 'FRENCH_WHITESPACE' }, -- Disable specific rules
             },
             dictionary = (function()
               local files = {}
-              for _, file in ipairs(vim.api.nvim_get_runtime_file("dict/*", true)) do
-                local lang = vim.fn.fnamemodify(file, ":t:r")
+              for _, file in ipairs(vim.api.nvim_get_runtime_file('dict/*', true)) do
+                local lang = vim.fn.fnamemodify(file, ':t:r')
                 local fullpath = vim.fs.normalize(file, { absolute = true })
-                files[lang] = { ":" .. fullpath }
+                files[lang] = { ':' .. fullpath }
               end
 
               if files.default then
                 for lang, _ in pairs(files) do
-                  if lang ~= "default" then
+                  if lang ~= 'default' then
                     vim.list_extend(files[lang], files.default)
                   end
                 end
@@ -46,7 +46,7 @@ return {
             end)(),
             hiddenFalsePositives = {
               en = { '{"rule": "", "sentence": "\\\\\\\\^\\\\w+"}', '{"rule": "", "sentence": "Thisproject"}' }, -- Ignore caret followed by a word character
-              fr = { '{"rule":"MORFOLOGIK_RULE_FR", "sentence":"\\\\^\\\\w"}' }
+              fr = { '{"rule":"MORFOLOGIK_RULE_FR", "sentence":"\\\\^\\\\w"}' },
             },
           },
         },
@@ -67,7 +67,7 @@ return {
     opts = {
       verbose = {
         no_code_found = false,
-      }
+      },
     },
   },
 
@@ -96,7 +96,7 @@ return {
           },
         },
         { 'Bilal2453/luvit-meta', lazy = true }, -- optional `vim.uv` typings
-        {                                        -- optional completion source for require statements and module annotations
+        { -- optional completion source for require statements and module annotations
           'hrsh7th/nvim-cmp',
           opts = function(_, opts)
             opts.sources = opts.sources or {}
@@ -117,21 +117,21 @@ return {
       require('mason').setup()
       require('mason-lspconfig').setup {
         ensure_installed = {
-          "pyright",
-          "lua_ls", -- Corrected server name for Lua
-          "html",
-          "cssls",
-          "jsonls",
-          "yamlls",
-          "bashls",
-          "vimls",
-          "r_language_server",
-          "dotls",
-          "marksman",
-          "tailwindcss",
-          "emmet_ls",
-          "ltex",
-          "ts_ls",
+          'pyright',
+          'lua_ls', -- Corrected server name for Lua
+          'html',
+          'cssls',
+          'jsonls',
+          'yamlls',
+          'bashls',
+          'vimls',
+          'r_language_server',
+          'dotls',
+          'marksman',
+          'tailwindcss',
+          'emmet_ls',
+          'ltex',
+          'ts_ls',
         },
         automatic_installation = true,
       }
@@ -152,22 +152,22 @@ return {
       -- create footnote highliter
       local function quarto_highlighter()
         -- Clear Existing syntax for this group (important for reloads)
-        vim.api.nvim_command("silent! syntax clear QuartoFootnote")
+        vim.api.nvim_command 'silent! syntax clear QuartoFootnote'
 
         -- Define Syntax to Match pattern Text^[Footnote]
-        vim.api.nvim_command([[
+        vim.api.nvim_command [[
           syntax match QuartoFootnote /\^\[.\{-}\]/ contains=@Spell
-        ]])
-        vim.api.nvim_command("highlight link QuartoFootnote Special")
+        ]]
+        vim.api.nvim_command 'highlight link QuartoFootnote Special'
       end
 
-      vim.api.nvim_create_autocmd({ "BufRead", "BufNewFile" }, {
-        pattern = { "*.md", "*.markdown", "*.qmd" },
+      vim.api.nvim_create_autocmd({ 'BufRead', 'BufNewFile' }, {
+        pattern = { '*.md', '*.markdown', '*.qmd' },
         callback = quarto_highlighter,
       })
 
       -- Apply syntax highlighting immediately
-      if vim.bo.filetype == "markdown" or vim.bo.filetype == "quarto" then
+      if vim.bo.filetype == 'markdown' or vim.bo.filetype == 'quarto' then
         quarto_highlighter()
       end
 
@@ -194,8 +194,12 @@ return {
           map('gh', vim.lsp.buf.signature_help, '[g]o to signature [h]elp')
           map('gI', vim.lsp.buf.implementation, '[g]o to [I]mplementation')
           map('gr', vim.lsp.buf.references, '[g]o to [r]eferences')
-          map('[d', function() vim.diagnostic.jump({ count = 1 }) end, 'previous [d]iagnostic ')
-          map(']d', function() vim.diagnostic.jump({ count = -1 }) end, 'next [d]iagnostic ')
+          map('[d', function()
+            vim.diagnostic.jump { count = 1 }
+          end, 'previous [d]iagnostic ')
+          map(']d', function()
+            vim.diagnostic.jump { count = -1 }
+          end, 'next [d]iagnostic ')
           map('<leader>ll', vim.lsp.codelens.run, '[l]ens run')
           map('<leader>lR', vim.lsp.buf.rename, '[l]sp [R]ename')
           map('<leader>lf', vim.lsp.buf.format, '[l]sp [f]ormat')
@@ -209,10 +213,8 @@ return {
         debounce_text_changes = 150,
       }
 
-      vim.lsp.handlers['textDocument/hover'] = vim.lsp.with(vim.lsp.handlers.hover,
-        { border = require('misc.style').border })
-      vim.lsp.handlers['textDocument/signatureHelp'] = vim.lsp.with(vim.lsp.handlers.signature_help,
-        { border = require('misc.style').border })
+      vim.lsp.handlers['textDocument/hover'] = vim.lsp.with(vim.lsp.handlers.hover, { border = require('misc.style').border })
+      vim.lsp.handlers['textDocument/signatureHelp'] = vim.lsp.with(vim.lsp.handlers.signature_help, { border = require('misc.style').border })
 
       local capabilities = vim.lsp.protocol.make_client_capabilities()
       capabilities = vim.tbl_deep_extend('force', capabilities, require('cmp_nvim_lsp').default_capabilities())
@@ -343,7 +345,6 @@ return {
         flags = lsp_flags,
       }
 
-
       lspconfig.julials.setup {
         capabilities = capabilities,
         flags = lsp_flags,
@@ -374,9 +375,9 @@ return {
           ['rust-analyzer'] = {
             diagnostics = {
               enable = false,
-            }
-          }
-        }
+            },
+          },
+        },
       }
 
       -- lspconfig.ruff_lsp.setup {
@@ -407,17 +408,16 @@ return {
           },
         },
         root_dir = function(fname)
-          return util.root_pattern('.git', 'setup.py', 'setup.cfg', 'pyproject.toml', 'requirements.txt')(fname) or
-              util.path.dirname(fname)
+          return util.root_pattern('.git', 'setup.py', 'setup.cfg', 'pyproject.toml', 'requirements.txt')(fname) or util.path.dirname(fname)
         end,
       }
 
       -- Configure black as a formatter for Python files
-      vim.api.nvim_create_autocmd("BufWritePre", {
-        pattern = { "*.py", "*.qmd" },
+      vim.api.nvim_create_autocmd('BufWritePre', {
+        pattern = { '*.py', '*.qmd' },
         callback = function()
-          if vim.bo.filetype == "python" or vim.bo.filetype == "quarto" then
-            vim.lsp.buf.format({ async = false })
+          if vim.bo.filetype == 'python' or vim.bo.filetype == 'quarto' then
+            vim.lsp.buf.format { async = false }
           end
         end,
       })
