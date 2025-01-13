@@ -172,7 +172,14 @@ return {
             dismiss = '<C-]>',
           },
         },
-        panel = { enabled = false },
+        panel = { 
+          enabled = true,
+          position = 'right'
+        },
+        filetypes = {
+          markdown = true,
+          quarto = true,
+        },
       }
     end,
   },
@@ -183,6 +190,10 @@ return {
       { "nvim-lua/plenary.nvim", branch = "master" }, -- for curl, log and async functions
     },
     build = "make tiktoken", 
+    window = {
+      width = 0.33,
+      border = 'solid',
+    },
     opts = {
       -- See Configuration section for options
       noinsert = true,
