@@ -82,7 +82,16 @@ return {
             },
           },
         },
+        fold = {
+          enable = true,
+          indent_levels = true,
+        },
       }
+      vim.o.foldmethod = 'indent'
+      vim.o.foldexpr = '' -- treesitter folding
+      vim.opt.foldtext = "v:folddashes.repeat(v:foldlevel)..' ' .. v:foldstart .. ' lines: ' .. (v:foldend - v:foldstart + 1)"
+
+
     end,
   },
 }
