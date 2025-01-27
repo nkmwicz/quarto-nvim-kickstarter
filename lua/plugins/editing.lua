@@ -36,7 +36,7 @@ return {
       require('conform').setup {
         notify_on_error = true,
         format_on_save = {
-          timeout_ms = 750,
+          timeout_ms = 1250,
           lsp_fallback = true,
         },
         formatters_by_ft = {
