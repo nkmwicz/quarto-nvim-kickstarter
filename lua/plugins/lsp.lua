@@ -14,7 +14,7 @@ return {
         settings = {
           ltex = {
             enabled = { 'latex', 'tex', 'bib', 'markdown', 'quarto' },
-            language = { 'en', 'fr' },
+            language = "auto",
             diagnosticSeverity = 'information',
             sentenceCacheSize = 2000,
             additionalRules = {
