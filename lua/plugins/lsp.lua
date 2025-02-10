@@ -3,6 +3,7 @@ return {
     'vigoux/ltex-ls.nvim',
     -- No requires = 'neovim/nvim-lspconfig' as advised by plugin author
     config = function()
+      -- COPY ltex-ls tar file into usr/local/bin/ltex-ls
       -- Set JAVA_HOME explicitly within Neovim
       vim.env.JAVA_HOME = '/usr/local/bin/ltex-ls/jdk-11.0.12+7'
       vim.env.PATH = vim.env.PATH .. ':' .. vim.env.JAVA_HOME .. '/bin'

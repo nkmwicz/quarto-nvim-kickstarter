@@ -24,7 +24,7 @@ Download one here: <https://www.nerdfonts.com/> and set it as your terminal font
 ### Unix, Linux Installation
 
 ```bash
-git clone https://github.com/jmbuhr/quarto-nvim-kickstarter.git ~/.config/nvim
+git clone https://github.com/nkmwicz/quarto-nvim-kickstarter.git ~/.config/nvim
 ```
 
 For displaying images in your terminal a recent version of [kitty](https://sw.kovidgoyal.net/kitty/) or [wezterm](https://wezfurlong.org/wezterm/index.html) is required
