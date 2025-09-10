@@ -146,3 +146,7 @@ vim.filetype.add {
 -- additional builtin vim packages
 -- filter quickfix list with Cfilter
 vim.cmd.packadd 'cfilter'
+
+-- Make bold markdown text a different color (example: orange)
+vim.api.nvim_set_hl(0, '@markup.strong', { fg = '#FF4500', bold = true })
+vim.api.nvim_set_hl(0, 'markdownBold', { fg = '#FF4500', bold = true }) -- fallback for legacy
