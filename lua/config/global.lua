@@ -22,6 +22,8 @@ end
 vim.opt.wrap = true
 vim.opt.showbreak = '>>> '
 vim.opt.linebreak = true
+-- add vertical line at 80 characters
+vim.opt.colorcolumn = "80"
 
 -- indent
 vim.opt.smartindent = true
