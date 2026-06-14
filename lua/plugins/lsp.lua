@@ -135,6 +135,7 @@ return {
           'ts_ls',
         },
         automatic_installation = true,
+        automatic_enable = true,
       }
       require('mason-tool-installer').setup {
         ensure_installed = {
@@ -225,13 +226,13 @@ return {
       -- $home/.config/marksman/config.toml :
       -- [core]
       -- markdown.file_extensions = ["md", "markdown", "qmd"]
-      lspconfig.marksman.setup {
+      vim.lsp.config.marksman.setup {
         capabilities = capabilities,
         filetypes = { 'markdown', 'quarto' },
         root_dir = util.root_pattern('.git', '.marksman.toml', '_quarto.yml'),
       }
 
-      lspconfig.r_language_server.setup {
+      vim.lsp.config.r_language_server.setup {
         capabilities = capabilities,
         flags = lsp_flags,
         settings = {
@@ -243,22 +244,22 @@ return {
         },
       }
 
-      lspconfig.cssls.setup {
+      vim.lsp.config.cssls.setup {
         capabilities = capabilities,
         flags = lsp_flags,
       }
 
-      lspconfig.html.setup {
+      vim.lsp.config.html.setup {
         capabilities = capabilities,
         flags = lsp_flags,
       }
 
-      lspconfig.emmet_language_server.setup {
+      vim.lsp.config.emmet_language_server.setup {
         capabilities = capabilities,
         flags = lsp_flags,
       }
 
-      lspconfig.yamlls.setup {
+      vim.lsp.config.yamlls.setup {
         capabilities = capabilities,
         flags = lsp_flags,
         settings = {
@@ -271,17 +272,17 @@ return {
         },
       }
 
-      lspconfig.jsonls.setup {
+      vim.lsp.config.jsonls.setup {
         capabilities = capabilities,
         flags = lsp_flags,
       }
 
-      lspconfig.dotls.setup {
+      vim.lsp.config.dotls.setup {
         capabilities = capabilities,
         flags = lsp_flags,
       }
 
-      lspconfig.ts_ls.setup {
+      vim.lsp.config.ts_ls.setup {
         capabilities = capabilities,
         flags = lsp_flags,
         filetypes = { 'js', 'javascript', 'typescript', 'ojs', 'typescriptreact', 'ts', 'tsx', 'jsx', 'javascriptreact' },
@@ -312,7 +313,7 @@ return {
         table.insert(lua_plugin_paths, resource_path .. '/lua-plugin/plugin.lua')
       end
 
-      lspconfig.lua_ls.setup {
+      vim.lsp.config.lua_ls.setup {
         capabilities = capabilities,
         flags = lsp_flags,
         settings = {
@@ -341,17 +342,17 @@ return {
         },
       }
 
-      lspconfig.vimls.setup {
+      vim.lsp.config.vimls.setup {
         capabilities = capabilities,
         flags = lsp_flags,
       }
 
-      lspconfig.julials.setup {
+      vim.lsp.config.julials.setup {
         capabilities = capabilities,
         flags = lsp_flags,
       }
 
-      lspconfig.bashls.setup {
+      vim.lsp.config.bashls.setup {
         capabilities = capabilities,
         flags = lsp_flags,
         filetypes = { 'sh', 'bash' },
@@ -360,17 +361,17 @@ return {
       -- Add additional languages here.
       -- See `:h lspconfig-all` for the configuration.
       -- Like e.g. Haskell:
-      -- lspconfig.hls.setup {
+      -- vim.lsp.config.hls.setup {
       --   capabilities = capabilities,
       --   flags = lsp_flags
       -- }
 
-      -- lspconfig.clangd.setup {
+      -- vim.lsp.config.clangd.setup {
       --   capabilities = capabilities,
       --   flags = lsp_flags,
       -- }
 
-      lspconfig.rust_analyzer.setup {
+      vim.lsp.config.rust_analyzer.setup {
         capabilities = capabilities,
         settings = {
           ['rust-analyzer'] = {
@@ -381,7 +382,7 @@ return {
         },
       }
 
-      -- lspconfig.ruff_lsp.setup {
+      -- vim.lsp.config.ruff_lsp.setup {
       --   capabilities = capabilities,
       --   flags = lsp_flags,
       -- }
@@ -396,7 +397,7 @@ return {
       end
       capabilities.workspace.didChangeWatchedFiles.dynamicRegistration = false
 
-      lspconfig.pyright.setup {
+      vim.lsp.config.pyright.setup {
         capabilities = capabilities,
         flags = lsp_flags,
         settings = {
