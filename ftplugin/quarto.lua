@@ -31,6 +31,7 @@ end
 -- 'lukas-reineke/headlines.nvim'
 -- (disabled in lua/plugins/ui.lua)
 local buf = api.nvim_get_current_buf()
+if not vim.api.nvim_buf_is_loaded(buf) then return end
 
 local parsername = 'markdown'
 local parser = ts.get_parser(buf, parsername)
