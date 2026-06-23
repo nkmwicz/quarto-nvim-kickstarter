@@ -366,19 +366,75 @@ wk.add({
     { "<leader>bir", function()
         local p = get_sections_path()
         if vim.fn.isdirectory(p) ~= 1 then print("No 'sections/' found.") return end
-        local lines = vim.fn.systemlist('rg --no-heading "^status:|^keywords:" ' .. p)
-        if #lines == 0 then print("No status/keyword metadata found.") return end
+
+        local files = vim.fn.globpath(p, '*.qmd', false, true)
+        vim.list_extend(files, vim.fn.globpath(p, '*.md', false, true))
+        if #files == 0 then print("No section files found.") return end
+
+        local by_status, no_status = {}, {}
+        for _, fpath in ipairs(files) do
+          local fname   = vim.fn.fnamemodify(fpath, ':t')
+          local status  = nil
+          local in_yaml = false
+          for i, line in ipairs(vim.fn.readfile(fpath, '', 30)) do
+            if i == 1 and line == '---' then
+              in_yaml = true
+            elseif in_yaml and (line == '---' or line == '...') then
+              break
+            elseif in_yaml then
+              local s = line:match('^status:%s*(.-)%s*$')
+              if s and s ~= '' then status = s end
+            end
+          end
+          if status then
+            by_status[status] = by_status[status] or {}
+            table.insert(by_status[status], fname)
+          else
+            table.insert(no_status, fname)
+          end
+        end
+
+        local total  = #files
+        local report = {}
+        local shown  = {}
+        for _, st in ipairs({ 'todo', 'draft', 'review', 'done' }) do
+          local list = by_status[st]
+          if list then
+            shown[st] = true
+            table.sort(list)
+            local pct = math.floor(#list / total * 100 + 0.5)
+            table.insert(report, string.format('%s  (%d%%  %d/%d)', st, pct, #list, total))
+            for _, f in ipairs(list) do table.insert(report, '  ' .. f) end
+            table.insert(report, '')
+          end
+        end
+        for st, list in pairs(by_status) do
+          if not shown[st] then
+            table.sort(list)
+            local pct = math.floor(#list / total * 100 + 0.5)
+            table.insert(report, string.format('%s  (%d%%  %d/%d)', st, pct, #list, total))
+            for _, f in ipairs(list) do table.insert(report, '  ' .. f) end
+            table.insert(report, '')
+          end
+        end
+        if #no_status > 0 then
+          table.sort(no_status)
+          local pct = math.floor(#no_status / total * 100 + 0.5)
+          table.insert(report, string.format('(no status)  (%d%%  %d/%d)', pct, #no_status, total))
+          for _, f in ipairs(no_status) do table.insert(report, '  ' .. f) end
+        end
+
         local buf = vim.api.nvim_create_buf(false, true)
-        vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+        vim.api.nvim_buf_set_lines(buf, 0, -1, false, report)
         vim.bo[buf].modifiable = false
-        local width  = math.floor(vim.o.columns * 0.75)
-        local height = math.min(#lines + 2, math.floor(vim.o.lines * 0.6))
+        local width  = math.floor(vim.o.columns * 0.5)
+        local height = math.min(#report + 2, math.floor(vim.o.lines * 0.7))
         local win = vim.api.nvim_open_win(buf, true, {
           relative  = 'editor',
           row       = math.floor((vim.o.lines   - height) / 2),
           col       = math.floor((vim.o.columns - width)  / 2),
-          width     = width, height = height,
-          style     = 'minimal',
+          width = width, height = height,
+          style = 'minimal',
           border    = require('misc.style').border,
           title     = ' Manuscript Status Report ',
           title_pos = 'center',
