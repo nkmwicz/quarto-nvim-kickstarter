@@ -37,3 +37,50 @@ vim.api.nvim_create_autocmd({"BufReadPost"}, {
   pattern = "*.pdf",
   command = "silent !xdg-open % &",
 })
+
+-- Quarto/Markdown: peek at {{< include >}} file in a floating window
+vim.api.nvim_create_autocmd('FileType', {
+  pattern = { 'quarto', 'markdown' },
+  callback = function()
+    vim.keymap.set('n', '<leader>bp', function()
+      local line = vim.api.nvim_get_current_line()
+      local path = line:match('{{<.*include%s+(.-)%s*>}}')
+
+      if not path then
+        print("Not on a Quarto {{< include >}} line.")
+        return
+      end
+
+      local full_path = vim.fn.expand('%:p:h') .. '/' .. path
+      if vim.fn.filereadable(full_path) == 0 then
+        print("Include file not found: " .. full_path)
+        return
+      end
+
+      local buf = vim.api.nvim_create_buf(false, true)
+      vim.api.nvim_buf_set_lines(buf, 0, -1, false, vim.fn.readfile(full_path))
+      vim.bo[buf].filetype = full_path:match('%.qmd$') and 'quarto' or 'markdown'
+      vim.bo[buf].modifiable = false
+
+      local width  = math.floor(vim.o.columns * 0.8)
+      local height = math.floor(vim.o.lines   * 0.7)
+      local win = vim.api.nvim_open_win(buf, true, {
+        relative  = 'editor',
+        row       = math.floor((vim.o.lines   - height) / 2),
+        col       = math.floor((vim.o.columns - width)  / 2),
+        width     = width,
+        height    = height,
+        style     = 'minimal',
+        border    = require('misc.style').border,
+        title     = ' ' .. vim.fn.fnamemodify(path, ':t') .. ' ',
+        title_pos = 'center',
+      })
+
+      for _, key in ipairs({ 'q', '<Esc>' }) do
+        vim.keymap.set('n', key, function()
+          vim.api.nvim_win_close(win, true)
+        end, { buffer = buf, silent = true })
+      end
+    end, { buffer = true, desc = "[p]eek include file" })
+  end,
+})

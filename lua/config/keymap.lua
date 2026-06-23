@@ -317,10 +317,78 @@ end
 vim.keymap.set("n", "<leader>os", get_otter_symbols_lang, {desc = "otter [s]ymbols"})
 
 
+local function get_sections_path()
+  local dir = vim.fn.expand('%:p:h')
+  if dir:match('sections$') or dir:match('scripts$')
+    or dir:match('data$') or dir:match('notes$') then
+    dir = vim.fn.fnamemodify(dir, ':h')
+  end
+  return dir .. '/sections'
+end
+
 -- normal mode with <leader>
 wk.add({
   {
     { "<leader><cr>", send_cell, desc = "run code cell" },
+    { "<leader>b", group = "[b]inder" },
+    { "<leader>bs", function()
+        local p = get_sections_path()
+        if vim.fn.isdirectory(p) ~= 1 then
+          print("No 'sections/' directory found near this file.")
+          return
+        end
+        local ok, tb = pcall(require, "telescope.builtin")
+        if ok then
+          tb.find_files({ prompt_title = " Binder Sections ", search_dirs = { p }, hidden = true })
+        else
+          print("Telescope not loaded.")
+        end
+      end, desc = "[s]ections" },
+    { "<leader>bi", group = "[i]nspector" },
+    { "<leader>bis", function()
+        local p = get_sections_path()
+        if vim.fn.isdirectory(p) ~= 1 then print("No 'sections/' found.") return end
+        require('telescope.builtin').live_grep({
+          search_dirs  = { p },
+          prompt_title = " Inspector: Status (type todo / draft / review / done) ",
+          default_text = "status: ",
+        })
+      end, desc = "[s]tatus" },
+    { "<leader>bik", function()
+        local p = get_sections_path()
+        if vim.fn.isdirectory(p) ~= 1 then print("No 'sections/' found.") return end
+        require('telescope.builtin').live_grep({
+          search_dirs  = { p },
+          prompt_title = " Inspector: Keywords ",
+          default_text = "keywords: ",
+        })
+      end, desc = "[k]eywords" },
+    { "<leader>bir", function()
+        local p = get_sections_path()
+        if vim.fn.isdirectory(p) ~= 1 then print("No 'sections/' found.") return end
+        local lines = vim.fn.systemlist('rg --no-heading "^status:|^keywords:" ' .. p)
+        if #lines == 0 then print("No status/keyword metadata found.") return end
+        local buf = vim.api.nvim_create_buf(false, true)
+        vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+        vim.bo[buf].modifiable = false
+        local width  = math.floor(vim.o.columns * 0.75)
+        local height = math.min(#lines + 2, math.floor(vim.o.lines * 0.6))
+        local win = vim.api.nvim_open_win(buf, true, {
+          relative  = 'editor',
+          row       = math.floor((vim.o.lines   - height) / 2),
+          col       = math.floor((vim.o.columns - width)  / 2),
+          width     = width, height = height,
+          style     = 'minimal',
+          border    = require('misc.style').border,
+          title     = ' Manuscript Status Report ',
+          title_pos = 'center',
+        })
+        for _, key in ipairs({ 'q', '<Esc>' }) do
+          vim.keymap.set('n', key, function()
+            vim.api.nvim_win_close(win, true)
+          end, { buffer = buf, silent = true })
+        end
+      end, desc = "[r]eport" },
     { "<leader>c", group = "[c]ode / [c]ell / [c]hunk" },
     { "<leader>ci", new_terminal_ipython, desc = "new [i]python terminal" },
     { "<leader>cj", new_terminal_julia, desc = "new [j]ulia terminal" },
