@@ -15,6 +15,14 @@ return {
           { 'kkharji/sqlite.lua' },
         },
         config = function()
+          -- The telescope extension file never calls zotero.setup(), so the
+          -- extensions.zotero config in telescope.setup{} is silently ignored
+          -- and the db path stays at its default ~/Zotero/zotero.sqlite.
+          -- Call setup explicitly here with the actual snap install path.
+          require('zotero').setup {
+            zotero_db_path    = '/home/nathan/snap/zotero-snap/common/Zotero/zotero.sqlite',
+            zotero_storage_path = '/home/nathan/snap/zotero-snap/common/Zotero/storage',
+          }
           vim.keymap.set('n', '<leader>fz', ':Telescope zotero<cr>', { desc = '[z]otero' })
         end,
       },
@@ -100,6 +108,7 @@ return {
             override_file_sorter = true,    -- override the file sorter
             case_mode = 'smart_case',       -- or "ignore_case" or "respect_case"
           },
+          zotero = {},
         },
       }
       telescope.load_extension 'fzf'
