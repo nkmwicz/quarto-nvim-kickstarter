@@ -376,10 +376,12 @@ local function cmd_outliner()
   end
 
   local C1, C2, C3 = 10, 6, 30   -- status, words, filename column widths
-  local lines  = {}
-  local fmap   = {}               -- line number → fpath
+  -- Lua's string.format doesn't support * for dynamic widths; bake them in.
+  local row_fmt  = string.format('  %%-%ds  %%%ds  %%-%ds  %%s', C1, C2, C3)
+  local lines    = {}
+  local fmap     = {}               -- line number → fpath
 
-  lines[1] = string.format('  %-*s  %*s  %-*s  summary', C1, 'status', C2, 'words', C3, 'file')
+  lines[1] = string.format(row_fmt, 'status', 'words', 'file', 'summary')
   lines[2] = '  ' .. string.rep('─', C1 + C2 + C3 + 40)
 
   for _, s in ipairs(sections) do
@@ -389,8 +391,7 @@ local function cmd_outliner()
     local avail      = math.max(10, vim.o.columns - C1 - C2 - C3 - 12)
     local summary    = #s.summary > avail and s.summary:sub(1, avail - 1) .. '…' or s.summary
     if summary == '' then summary = '—' end
-    lines[#lines + 1] = string.format('  %-*s  %*s  %-*s  %s',
-      C1, status_str, C2, words_str, C3, s.fname, summary)
+    lines[#lines + 1] = string.format(row_fmt, status_str, words_str, s.fname, summary)
     fmap[#lines] = s.path
   end
 
