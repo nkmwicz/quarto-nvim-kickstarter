@@ -38,6 +38,15 @@ vim.api.nvim_create_autocmd({"BufReadPost"}, {
   command = "silent !xdg-open % &",
 })
 
+-- Auto-activate otter on Quarto files so LSP completions (including @citations)
+-- work without needing a manual <leader>qa each time.
+vim.api.nvim_create_autocmd('FileType', {
+  pattern = 'quarto',
+  callback = function()
+    require('otter').activate()
+  end,
+})
+
 -- Global gf: resolve ./relative and ../relative paths from the buffer's directory
 -- in any filetype. Neovim natively resolves ./ from cwd, which breaks when they differ.
 local function gf_open_relative(cfile, dir)
