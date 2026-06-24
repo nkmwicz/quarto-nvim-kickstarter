@@ -468,73 +468,137 @@ local function cmd_corkboard()
     return
   end
 
-  local inner = 54
-  local bar   = string.rep('─', inner)
-  local lines = {}
-  local card_starts = {}   -- line index → section index
-
-  for idx, s in ipairs(sections) do
-    card_starts[#lines + 1] = idx
-
-    local icon       = STATUS_ICON[s.status] or '·'
-    local status_tag = icon .. ' ' .. (s.status ~= '' and s.status or '—')
-    local words_tag  = s.words .. 'w'
-    -- header row: filename left, tags right
-    local gap = math.max(1, inner - #s.fname - #status_tag - #words_tag - 2)
-    local header = s.fname .. string.rep(' ', gap) .. status_tag .. '  ' .. words_tag
-
-    lines[#lines + 1] = '┌' .. bar .. '┐'
-    lines[#lines + 1] = '│ ' .. header:sub(1, inner - 1) .. string.rep(' ', math.max(0, inner - 1 - #header)) .. ' │'
-    lines[#lines + 1] = '│' .. string.rep(' ', inner + 1) .. '│'
-
-    -- summary + keywords word-wrapped
-    local body = s.summary ~= '' and s.summary or '(no summary)'
-    if s.keywords ~= '' then body = body .. '  ·  ' .. s.keywords end
-    local w = inner - 2
-    repeat
-      local seg = body:sub(1, w)
-      if #body > w then
-        local cut = seg:match '(.*)%s'
-        if cut and #cut > 2 then seg = cut end
+  -- Load parent file so movement mode can save the new order.
+  local pfile, plines, include_pos = nil, nil, {}
+  local parents = find_parents(vim.fn.fnamemodify(sp, ':h'))
+  if #parents > 0 then
+    pfile  = parents[1]
+    plines = vim.fn.readfile(pfile)
+    for i, line in ipairs(plines) do
+      local included = line:match '{{<%s*include%s+(.-)%s*>}}'
+      if included then
+        local fname = vim.fn.fnamemodify(included, ':t')
+        if vim.fn.filereadable(sp .. '/' .. fname) == 1 then
+          include_pos[#include_pos + 1] = { idx = i, fname = fname, line = line }
+        end
       end
-      lines[#lines + 1] = '│ ' .. seg .. string.rep(' ', w - #seg) .. ' │'
-      body = body:sub(#seg + 1):gsub('^%s+', '')
-    until body == ''
-
-    lines[#lines + 1] = '└' .. bar .. '┘'
-    lines[#lines + 1] = ''
+    end
   end
-  lines[#lines + 1] = '  j/k: next/prev card    <Enter>: open    q: close'
+  local fname_to_line = {}
+  for _, e in ipairs(include_pos) do fname_to_line[e.fname] = e.line end
 
-  local w   = inner + 4
-  local buf, win = open_float(lines, 'Corkboard', { width = w, height = math.floor(vim.o.lines * 0.85) })
+  local order     = {}
+  for i, s in ipairs(sections) do order[i] = s end
+  local cur       = 1
+  local move_mode = false
+  local inner     = 54
+  local idx_to_line = {}   -- card index → first buffer line, updated by render()
 
-  -- sorted card-start line numbers
-  local cl = vim.tbl_keys(card_starts)
-  table.sort(cl)
+  local function render()
+    local ls = {}
+    idx_to_line = {}
+    for i, s in ipairs(order) do
+      idx_to_line[i] = #ls + 1
+      local sel = (i == cur) and move_mode
+      local tl, tr, bl, br, si, bar
+      if sel then
+        tl, tr, bl, br, si = '╔', '╗', '╚', '╝', '║'
+        bar = string.rep('═', inner)
+      else
+        tl, tr, bl, br, si = '┌', '┐', '└', '┘', '│'
+        bar = string.rep('─', inner)
+      end
 
-  local function cur_cl()
-    local row = vim.api.nvim_win_get_cursor(win)[1]
-    local best = cl[1]
-    for _, l in ipairs(cl) do if l <= row then best = l end end
-    return best
+      local icon       = STATUS_ICON[s.status] or '·'
+      local status_tag = icon .. ' ' .. (s.status ~= '' and s.status or '—')
+      local words_tag  = s.words .. 'w'
+      local gap = math.max(1, inner - #s.fname - #status_tag - #words_tag - 2)
+      local hdr = s.fname .. string.rep(' ', gap) .. status_tag .. '  ' .. words_tag
+      ls[#ls + 1] = tl .. bar .. tr
+      ls[#ls + 1] = si .. ' ' .. hdr:sub(1, inner - 1)
+                      .. string.rep(' ', math.max(0, inner - 1 - #hdr)) .. ' ' .. si
+      ls[#ls + 1] = si .. string.rep(' ', inner + 1) .. si
+
+      local body = s.summary ~= '' and s.summary or '(no summary)'
+      if s.keywords ~= '' then body = body .. '  ·  ' .. s.keywords end
+      local bw = inner - 2
+      repeat
+        local seg = body:sub(1, bw)
+        if #body > bw then
+          local cut = seg:match '(.*)%s'
+          if cut and #cut > 2 then seg = cut end
+        end
+        ls[#ls + 1] = si .. ' ' .. seg .. string.rep(' ', bw - #seg) .. ' ' .. si
+        body = body:sub(#seg + 1):gsub('^%s+', '')
+      until body == ''
+
+      ls[#ls + 1] = bl .. bar .. br
+      ls[#ls + 1] = ''
+    end
+    local m_tag    = 'move [' .. (move_mode and 'on ' or 'off') .. ']'
+    local enter_fn = (move_mode and pfile) and '<Enter>: save order' or '<Enter>: open'
+    ls[#ls + 1] = '  j/k: select    m: ' .. m_tag .. '    K/J: move card    ' .. enter_fn .. '    q: close'
+    return ls
   end
 
-  local function go(delta)
-    local cur = cur_cl()
-    local ci  = 1
-    for i, l in ipairs(cl) do if l == cur then ci = i; break end end
-    ci = math.max(1, math.min(#cl, ci + delta))
-    vim.api.nvim_win_set_cursor(win, { cl[ci], 0 })
+  local buf, win = open_float(render(), 'Corkboard', {
+    width  = inner + 4,
+    height = math.floor(vim.o.lines * 0.85),
+  })
+
+  local function scroll_to_cur()
+    local lnum = idx_to_line[cur] or 1
+    vim.api.nvim_win_set_cursor(win, { lnum, 0 })
   end
 
-  vim.keymap.set('n', 'j', function() go(1)  end, { buffer = buf, silent = true })
-  vim.keymap.set('n', 'k', function() go(-1) end, { buffer = buf, silent = true })
+  local function redraw()
+    local lines = render()
+    vim.bo[buf].modifiable = true
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+    vim.bo[buf].modifiable = false
+    scroll_to_cur()
+  end
+
+  scroll_to_cur()
+
+  vim.keymap.set('n', 'j', function()
+    if cur < #order then cur = cur + 1; redraw() end
+  end, { buffer = buf, silent = true })
+  vim.keymap.set('n', 'k', function()
+    if cur > 1 then cur = cur - 1; redraw() end
+  end, { buffer = buf, silent = true })
+  vim.keymap.set('n', 'm', function()
+    move_mode = not move_mode; redraw()
+  end, { buffer = buf, silent = true })
+  vim.keymap.set('n', 'K', function()
+    if move_mode and cur > 1 then
+      order[cur], order[cur - 1] = order[cur - 1], order[cur]; cur = cur - 1; redraw()
+    end
+  end, { buffer = buf, silent = true })
+  vim.keymap.set('n', 'J', function()
+    if move_mode and cur < #order then
+      order[cur], order[cur + 1] = order[cur + 1], order[cur]; cur = cur + 1; redraw()
+    end
+  end, { buffer = buf, silent = true })
   vim.keymap.set('n', '<CR>', function()
-    local idx = card_starts[cur_cl()]
-    if idx then
+    if move_mode and pfile then
+      local n = 0
+      for _, s in ipairs(order) do
+        if fname_to_line[s.fname] then
+          n = n + 1
+          if include_pos[n] then
+            plines[include_pos[n].idx] = fname_to_line[s.fname]
+          end
+        end
+      end
+      vim.fn.writefile(plines, pfile)
       vim.api.nvim_win_close(win, true)
-      vim.cmd('edit ' .. vim.fn.fnameescape(sections[idx].path))
+      vim.notify('[binder] order saved to ' .. vim.fn.fnamemodify(pfile, ':t'))
+      local pbuf = vim.fn.bufnr(pfile)
+      if pbuf ~= -1 then vim.cmd('checktime ' .. pbuf) end
+    else
+      vim.api.nvim_win_close(win, true)
+      vim.cmd('edit ' .. vim.fn.fnameescape(order[cur].path))
     end
   end, { buffer = buf, silent = true })
   close_keys(buf, win)
