@@ -38,6 +38,49 @@ vim.api.nvim_create_autocmd({"BufReadPost"}, {
   command = "silent !xdg-open % &",
 })
 
+-- Global gf: resolve ./relative and ../relative paths from the buffer's directory
+-- in any filetype. Neovim natively resolves ./ from cwd, which breaks when they differ.
+local function gf_open_relative(cfile, dir)
+  if not cfile:match('^%.%.?/') then return false end
+  local full = vim.fn.resolve(dir .. '/' .. cfile)
+  if vim.fn.filereadable(full) == 0 then return false end
+  vim.cmd('edit ' .. vim.fn.fnameescape(full))
+  return true
+end
+
+vim.keymap.set('n', 'gf', function()
+  local dir = vim.fn.expand('%:p:h')
+  if not gf_open_relative(vim.fn.expand('<cfile>'), dir) then
+    vim.cmd('normal! gf')
+  end
+end, { desc = 'go to file' })
+
+-- Quarto/Markdown: additionally handle {{< include ./path >}} shortcode syntax.
+-- Buffer-local, so it takes precedence over the global mapping above.
+vim.api.nvim_create_autocmd('FileType', {
+  pattern = { 'quarto', 'markdown' },
+  callback = function()
+    vim.keymap.set('n', 'gf', function()
+      local line = vim.api.nvim_get_current_line()
+      local dir  = vim.fn.expand('%:p:h')
+
+      local inc = line:match('{{<.*include%s+(.-)%s*>}}')
+      if inc then
+        inc = inc:gsub('^%./', '')
+        local full = dir .. '/' .. inc
+        if vim.fn.filereadable(full) == 1 then
+          vim.cmd('edit ' .. vim.fn.fnameescape(full))
+          return
+        end
+      end
+
+      if not gf_open_relative(vim.fn.expand('<cfile>'), dir) then
+        vim.cmd('normal! gf')
+      end
+    end, { buffer = true, desc = 'go to file' })
+  end,
+})
+
 -- Quarto/Markdown: peek at {{< include >}} file in a floating window
 vim.api.nvim_create_autocmd('FileType', {
   pattern = { 'quarto', 'markdown' },
