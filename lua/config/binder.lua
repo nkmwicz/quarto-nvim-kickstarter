@@ -613,32 +613,109 @@ end
 
 -- ── bf: focus mode ───────────────────────────────────────────────────────────
 
+-- Resolve the file path under the cursor (gf semantics). Returns absolute path or nil.
+local function resolve_cursor_file()
+  local dir   = vim.fn.expand '%:p:h'
+  local line  = vim.api.nvim_get_current_line()
+  local ft    = vim.bo.filetype
+  local cfile = vim.fn.expand '<cfile>'
+
+  -- 1. quarto/markdown {{< include ./path >}} shortcode
+  if ft == 'quarto' or ft == 'markdown' then
+    local inc = line:match '{{<.*include%s+(.-)%s*>}}'
+    if inc then
+      local full = dir .. '/' .. inc:gsub('^%./', '')
+      if vim.fn.filereadable(full) == 1 then return full end
+    end
+  end
+
+  -- 2. ./... or ../... relative path
+  if cfile:match '^%.%.?/' then
+    local full = vim.fn.resolve(dir .. '/' .. cfile)
+    if vim.fn.filereadable(full) == 1 then return full end
+  end
+
+  -- 3. <cfile> fallback resolved from buffer dir
+  if cfile ~= '' then
+    if vim.fn.filereadable(cfile) == 1 then return cfile end
+    local full = vim.fn.resolve(dir .. '/' .. cfile)
+    if vim.fn.filereadable(full) == 1 then return full end
+  end
+
+  return nil
+end
+
 local function cmd_focus()
-  if not require_section_file() then return end
-  local fpath = vim.fn.expand '%:p'
+  local fpath = resolve_cursor_file()
+  if not fpath then
+    vim.notify('[binder] no file under cursor', vim.log.levels.WARN)
+    return
+  end
   local fname = vim.fn.fnamemodify(fpath, ':t')
-  local buf   = vim.fn.bufnr(fpath)
+
+  local buf = vim.fn.bufnr(fpath)
   if buf == -1 then
     buf = vim.fn.bufadd(fpath)
     vim.fn.bufload(buf)
   end
+
+  local prev_win = vim.api.nvim_get_current_win()
+
+  -- backdrop: full-editor scratch float behind the focus window
+  local bd_buf = vim.api.nvim_create_buf(false, true)
+  local bd_win = vim.api.nvim_open_win(bd_buf, false, {
+    relative  = 'editor',
+    row       = 0,
+    col       = 0,
+    width     = vim.o.columns,
+    height    = vim.o.lines,
+    style     = 'minimal',
+    focusable = false,
+    zindex    = 49,
+  })
+  vim.wo[bd_win].winblend     = 20
+  vim.wo[bd_win].winhighlight = 'Normal:BinderBackdrop'
+
+  -- focus float
   local w = math.min(90, math.floor(vim.o.columns * 0.78))
   local h = math.floor(vim.o.lines * 0.88)
   local win = vim.api.nvim_open_win(buf, true, {
     relative  = 'editor',
     row       = math.floor((vim.o.lines - h) / 2),
     col       = math.floor((vim.o.columns - w) / 2),
-    width = w, height = h,
+    width     = w,
+    height    = h,
     style     = 'minimal',
     border    = require('misc.style').border,
     title     = '  ' .. fname .. ' — focus ',
     title_pos = 'center',
+    zindex    = 50,
   })
   vim.wo[win].wrap       = true
   vim.wo[win].linebreak  = true
   vim.wo[win].number     = false
   vim.wo[win].signcolumn = 'no'
-  -- <leader>bf again closes the focus window from inside it
+
+  -- on close (any means: :q, :wq, <leader>bf): clean up backdrop and restore focus
+  local augroup = vim.api.nvim_create_augroup('BinderFocusBackdrop_' .. win, { clear = true })
+  vim.api.nvim_create_autocmd('WinClosed', {
+    group    = augroup,
+    pattern  = tostring(win),
+    once     = true,
+    callback = function()
+      if vim.api.nvim_win_is_valid(bd_win) then
+        vim.api.nvim_win_close(bd_win, true)
+      end
+      if vim.api.nvim_buf_is_valid(bd_buf) then
+        vim.api.nvim_buf_delete(bd_buf, { force = true })
+      end
+      if vim.api.nvim_win_is_valid(prev_win) then
+        vim.api.nvim_set_current_win(prev_win)
+      end
+      vim.api.nvim_del_augroup_by_id(augroup)
+    end,
+  })
+
   vim.keymap.set('n', '<leader>bf', function()
     vim.api.nvim_win_close(win, false)
   end, { buffer = buf, silent = true, desc = 'close [f]ocus' })
@@ -749,6 +826,8 @@ end
 function M.setup()
   local wk = require 'which-key'
   local tb = require 'telescope.builtin'
+
+  vim.api.nvim_set_hl(0, 'BinderBackdrop', { bg = '#0d0d0f', fg = '#0d0d0f' })
 
   wk.add({
     { '<leader>b',   group = '[b]inder' },
