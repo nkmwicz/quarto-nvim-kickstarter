@@ -317,137 +317,10 @@ end
 vim.keymap.set("n", "<leader>os", get_otter_symbols_lang, {desc = "otter [s]ymbols"})
 
 
-local function get_sections_path()
-  local dir = vim.fn.expand('%:p:h')
-  if dir:match('sections$') or dir:match('scripts$')
-    or dir:match('data$') or dir:match('notes$') then
-    dir = vim.fn.fnamemodify(dir, ':h')
-  end
-  return dir .. '/sections'
-end
-
 -- normal mode with <leader>
 wk.add({
   {
     { "<leader><cr>", send_cell, desc = "run code cell" },
-    { "<leader>b", group = "[b]inder" },
-    { "<leader>bs", function()
-        local p = get_sections_path()
-        if vim.fn.isdirectory(p) ~= 1 then
-          print("No 'sections/' directory found near this file.")
-          return
-        end
-        local ok, tb = pcall(require, "telescope.builtin")
-        if ok then
-          tb.find_files({ prompt_title = " Binder Sections ", search_dirs = { p }, hidden = true })
-        else
-          print("Telescope not loaded.")
-        end
-      end, desc = "[s]ections" },
-    { "<leader>bi", group = "[i]nspector" },
-    { "<leader>bis", function()
-        local p = get_sections_path()
-        if vim.fn.isdirectory(p) ~= 1 then print("No 'sections/' found.") return end
-        require('telescope.builtin').live_grep({
-          search_dirs  = { p },
-          prompt_title = " Inspector: Status (type todo / draft / review / done) ",
-          default_text = "status: ",
-        })
-      end, desc = "[s]tatus" },
-    { "<leader>bik", function()
-        local p = get_sections_path()
-        if vim.fn.isdirectory(p) ~= 1 then print("No 'sections/' found.") return end
-        require('telescope.builtin').live_grep({
-          search_dirs  = { p },
-          prompt_title = " Inspector: Keywords ",
-          default_text = "keywords: ",
-        })
-      end, desc = "[k]eywords" },
-    { "<leader>bir", function()
-        local p = get_sections_path()
-        if vim.fn.isdirectory(p) ~= 1 then print("No 'sections/' found.") return end
-
-        local files = vim.fn.globpath(p, '*.qmd', false, true)
-        vim.list_extend(files, vim.fn.globpath(p, '*.md', false, true))
-        if #files == 0 then print("No section files found.") return end
-
-        local by_status, no_status = {}, {}
-        for _, fpath in ipairs(files) do
-          local fname    = vim.fn.fnamemodify(fpath, ':t')
-          local status   = nil
-          local in_meta  = false
-          local meta_end = ''
-          for i, line in ipairs(vim.fn.readfile(fpath, '', 30)) do
-            if i == 1 and line == '---' then
-              in_meta, meta_end = true, '^%-%-%-'
-            elseif i == 1 and line:match('^<!%-%-') then
-              in_meta, meta_end = true, '%-%->'
-            elseif in_meta and line:match(meta_end) then
-              break
-            elseif in_meta then
-              local s = line:match('^status:%s*(.-)%s*$')
-              if s and s ~= '' then status = s end
-            end
-          end
-          if status then
-            by_status[status] = by_status[status] or {}
-            table.insert(by_status[status], fname)
-          else
-            table.insert(no_status, fname)
-          end
-        end
-
-        local total  = #files
-        local report = {}
-        local shown  = {}
-        for _, st in ipairs({ 'todo', 'draft', 'review', 'done' }) do
-          local list = by_status[st]
-          if list then
-            shown[st] = true
-            table.sort(list)
-            local pct = math.floor(#list / total * 100 + 0.5)
-            table.insert(report, string.format('%s  (%d%%  %d/%d)', st, pct, #list, total))
-            for _, f in ipairs(list) do table.insert(report, '  ' .. f) end
-            table.insert(report, '')
-          end
-        end
-        for st, list in pairs(by_status) do
-          if not shown[st] then
-            table.sort(list)
-            local pct = math.floor(#list / total * 100 + 0.5)
-            table.insert(report, string.format('%s  (%d%%  %d/%d)', st, pct, #list, total))
-            for _, f in ipairs(list) do table.insert(report, '  ' .. f) end
-            table.insert(report, '')
-          end
-        end
-        if #no_status > 0 then
-          table.sort(no_status)
-          local pct = math.floor(#no_status / total * 100 + 0.5)
-          table.insert(report, string.format('(no status)  (%d%%  %d/%d)', pct, #no_status, total))
-          for _, f in ipairs(no_status) do table.insert(report, '  ' .. f) end
-        end
-
-        local buf = vim.api.nvim_create_buf(false, true)
-        vim.api.nvim_buf_set_lines(buf, 0, -1, false, report)
-        vim.bo[buf].modifiable = false
-        local width  = math.floor(vim.o.columns * 0.5)
-        local height = math.min(#report + 2, math.floor(vim.o.lines * 0.7))
-        local win = vim.api.nvim_open_win(buf, true, {
-          relative  = 'editor',
-          row       = math.floor((vim.o.lines   - height) / 2),
-          col       = math.floor((vim.o.columns - width)  / 2),
-          width = width, height = height,
-          style = 'minimal',
-          border    = require('misc.style').border,
-          title     = ' Manuscript Status Report ',
-          title_pos = 'center',
-        })
-        for _, key in ipairs({ 'q', '<Esc>' }) do
-          vim.keymap.set('n', key, function()
-            vim.api.nvim_win_close(win, true)
-          end, { buffer = buf, silent = true })
-        end
-      end, desc = "[r]eport" },
     { "<leader>c", group = "[c]ode / [c]ell / [c]hunk" },
     { "<leader>ci", new_terminal_ipython, desc = "new [i]python terminal" },
     { "<leader>cj", new_terminal_julia, desc = "new [j]ulia terminal" },
@@ -531,3 +404,5 @@ wk.add({
     { "<leader>xx", ":w<cr>:source %<cr>", desc = "[x] source %" },
   }
 }, { mode = 'n'})
+
+require('config.binder').setup()
