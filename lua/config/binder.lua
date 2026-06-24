@@ -535,16 +535,22 @@ local function cmd_corkboard()
       ls[#ls + 1] = bl .. bar .. br
       ls[#ls + 1] = ''
     end
-    local m_tag    = 'move [' .. (move_mode and 'on ' or 'off') .. ']'
-    local enter_fn = (move_mode and pfile) and '<Enter>: save order' or '<Enter>: open'
-    ls[#ls + 1] = '  j/k: select    m: ' .. m_tag .. '    K/J: move card    ' .. enter_fn .. '    q: close'
     return ls
+  end
+
+  local function get_footer()
+    if move_mode then
+      return ' j/k · select   K/J · move card   m · move[on]   ↵ · save order   q · close '
+    else
+      return ' j/k · select   m · move[off]   ↵ · open   q · close '
+    end
   end
 
   local buf, win = open_float(render(), 'Corkboard', {
     width  = inner + 4,
     height = math.floor(vim.o.lines * 0.85),
   })
+  vim.api.nvim_win_set_config(win, { footer = get_footer(), footer_pos = 'center' })
 
   local function scroll_to_cur()
     local lnum = idx_to_line[cur] or 1
@@ -556,6 +562,7 @@ local function cmd_corkboard()
     vim.bo[buf].modifiable = true
     vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
     vim.bo[buf].modifiable = false
+    vim.api.nvim_win_set_config(win, { footer = get_footer(), footer_pos = 'center' })
     scroll_to_cur()
   end
 
