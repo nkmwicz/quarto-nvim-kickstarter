@@ -328,7 +328,7 @@ local function cmd_move()
         s.status ~= '' and s.status or '—', s.fname)
     end
     ls[#ls + 1] = ''
-    ls[#ls + 1] = '  K/J: move up/down    <Enter>: save to ' .. vim.fn.fnamemodify(pfile, ':t') .. '    q: cancel'
+    ls[#ls + 1] = '  j/k: select    K/J: move up/down    <Enter>: save to ' .. vim.fn.fnamemodify(pfile, ':t') .. '    q: cancel'
     return ls
   end
 
@@ -343,6 +343,12 @@ local function cmd_move()
     vim.api.nvim_win_set_cursor(win, { cur, 0 })
   end
 
+  vim.keymap.set('n', 'j', function()
+    if cur < #order then cur = cur + 1; redraw() end
+  end, { buffer = buf, silent = true })
+  vim.keymap.set('n', 'k', function()
+    if cur > 1 then cur = cur - 1; redraw() end
+  end, { buffer = buf, silent = true })
   vim.keymap.set('n', 'K', function()
     if cur > 1 then order[cur], order[cur-1] = order[cur-1], order[cur]; cur = cur - 1; redraw() end
   end, { buffer = buf, silent = true })
