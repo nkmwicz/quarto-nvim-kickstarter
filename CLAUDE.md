@@ -70,6 +70,18 @@ Keymaps are in `lua/config/keymap.lua` and loaded by which-key's config function
 
 Requires the **kitty** terminal and system packages: `imagemagick`, `libmagickwand-dev`, `liblua5.1-0-dev`, `lua5.1`, `luajit`. Run `:checkhealth kickstart` to verify.
 
+## Binder (`lua/config/binder.lua`)
+
+The binder is a Scrivener-inspired manuscript environment for Quarto projects. The goal is a writing workflow — not file browsing — where the unit of work is a **section** (a `.qmd` file in a `sections/` subdirectory) and the assembly order is controlled by Quarto `{{< include >}}` directives in a parent document.
+
+Design intent:
+- Section metadata (status, summary, keywords) lives **in-file** in HTML comment blocks, not a database or sidebar.
+- The parent document is authoritative for reading order; the outliner and corkboard reflect and write back to it.
+- Status values (`todo → draft → review → done`) model a writing lifecycle, not a software one.
+- Navigation commands (`<leader>b…`) are scoped to the manuscript: jump to parent, open a section, reorder chapters — not generic file operations.
+
+When extending this code, preserve the manuscript metaphor. Changes that turn it into a general file manager or break the sections/-as-unit-of-work assumption are out of scope.
+
 ## Disabled plugins
 
 Several plugins are kept as commented-out examples but disabled (`enabled = false`): lualine (custom statusline is used instead), trouble, indent-blankline, molten-nvim, flash.nvim, fidget.nvim. Enable by setting `enabled = true`.
