@@ -135,6 +135,49 @@ local function collect_sections(sp)
   return out
 end
 
+-- Like collect_sections but ordered by the first parent document's include lines.
+-- Sections not referenced in the parent are appended at the end.
+-- Falls back to alphabetical when no parent is found.
+local function collect_sections_ordered(sp)
+  local project_dir = vim.fn.fnamemodify(sp, ':h')
+  local parents = {}
+  local hits = vim.fn.systemlist { 'grep', '-rl', '--include=*.qmd', '{{< include', project_dir }
+  for _, h in ipairs(hits) do
+    if not h:match '/sections/' then parents[#parents + 1] = h end
+  end
+
+  if #parents == 0 then return collect_sections(sp) end
+
+  local plines = vim.fn.readfile(parents[1])
+  local ordered, seen = {}, {}
+  for _, line in ipairs(plines) do
+    local included = line:match '{{<%s*include%s+(.-)%s*>}}'
+    if included then
+      local fname = vim.fn.fnamemodify(included, ':t')
+      local full  = sp .. '/' .. fname
+      if vim.fn.filereadable(full) == 1 and not seen[fname] then
+        seen[fname] = true
+        local meta = parse_meta(full)
+        ordered[#ordered + 1] = {
+          path     = full,
+          fname    = fname,
+          status   = meta.status   or '',
+          summary  = meta.summary  or '',
+          keywords = meta.keywords or '',
+          words    = word_count(full),
+        }
+      end
+    end
+  end
+
+  -- Append orphaned section files not referenced in the parent.
+  for _, s in ipairs(collect_sections(sp)) do
+    if not seen[s.fname] then ordered[#ordered + 1] = s end
+  end
+
+  return ordered
+end
+
 -- Find parent .qmd files (outside sections/) that contain {{< include >}} lines.
 local function find_parents(project_dir)
   local hits = vim.fn.systemlist {
@@ -375,7 +418,7 @@ local STATUS_ICON = { todo = '○', draft = '◑', review = '◕', done = '●' 
 local function cmd_outliner()
   local sp = require_sections()
   if not sp then return end
-  local sections = collect_sections(sp)
+  local sections = collect_sections_ordered(sp)
   if #sections == 0 then
     vim.notify('[binder] no section files found', vim.log.levels.WARN)
     return
@@ -419,7 +462,7 @@ end
 local function cmd_corkboard()
   local sp = require_sections()
   if not sp then return end
-  local sections = collect_sections(sp)
+  local sections = collect_sections_ordered(sp)
   if #sections == 0 then
     vim.notify('[binder] no section files found', vim.log.levels.WARN)
     return
