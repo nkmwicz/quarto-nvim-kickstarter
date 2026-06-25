@@ -8,6 +8,12 @@ return {
       { 'nvim-telescope/telescope-fzf-native.nvim', build = 'make' },
       { 'nvim-telescope/telescope-dap.nvim' },
       {
+        'nvim-telescope/telescope-bibtex.nvim',
+        config = function()
+          vim.keymap.set('n', '<leader>fr', ':Telescope bibtex<cr>', { desc = '[r]eferences' })
+        end,
+      },
+      {
         'jmbuhr/telescope-zotero.nvim',
         enabled = true,
         dev = false,
@@ -109,12 +115,19 @@ return {
             case_mode = 'smart_case',       -- or "ignore_case" or "respect_case"
           },
           zotero = {},
+          bibtex = {
+            depth = 2,
+            citation_format = '@{{cite_key}}',
+            search_keys = { 'author', 'year', 'title', 'keywords' },
+            citation_trim_firstname = true,
+          },
         },
       }
       telescope.load_extension 'fzf'
       telescope.load_extension 'ui-select'
       telescope.load_extension 'dap'
       telescope.load_extension 'zotero'
+      telescope.load_extension 'bibtex'
     end,
   },
 
