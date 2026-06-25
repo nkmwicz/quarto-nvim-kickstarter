@@ -484,9 +484,22 @@ local function cmd_corkboard()
   local fname_to_line = {}
   for _, e in ipairs(include_pos) do fname_to_line[e.fname] = e.line end
 
-  local order     = {}
-  for i, s in ipairs(sections) do order[i] = s end
-  local cur       = 1
+  -- Build order[] with a separator sentinel between included and orphan sections.
+  -- The sentinel acts like a regular element that K/J can swap past — crossing it
+  -- promotes/demotes a card without disturbing cards on the other side.
+  local SEP = { sep = true }
+  local order = {}
+  local sep_placed = false
+  for _, s in ipairs(sections) do
+    if s.orphan and not sep_placed then
+      order[#order + 1] = SEP
+      sep_placed = true
+    end
+    order[#order + 1] = s
+  end
+  if not sep_placed then order[#order + 1] = SEP end  -- no orphans: sep at end
+
+  local cur       = order[1] and order[1].sep and 2 or 1
   local move_mode = false
   local inner     = 68
   local idx_to_line = {}   -- card index → first buffer line, updated by render()
@@ -494,53 +507,52 @@ local function cmd_corkboard()
   local function render()
     local ls = {}
     idx_to_line = {}
-    local sep_done = false
     for i, s in ipairs(order) do
-      if s.orphan and not sep_done then
-        sep_done = true
+      if s.sep then
         local label = '  ── not in manuscript '
         ls[#ls + 1] = label .. string.rep('─', inner + 2 - #label)
         ls[#ls + 1] = ''
-      end
-      idx_to_line[i] = #ls + 1
-      local sel = (i == cur) and move_mode
-      local tl, tr, bl, br, si, bar
-      if sel then
-        tl, tr, bl, br, si = '╔', '╗', '╚', '╝', '║'
-        bar = string.rep('═', inner)
-      elseif s.orphan then
-        tl, tr, bl, br, si = '╭', '╮', '╰', '╯', '│'
-        bar = string.rep('─', inner)
       else
-        tl, tr, bl, br, si = '┌', '┐', '└', '┘', '│'
-        bar = string.rep('─', inner)
-      end
-
-      local icon       = STATUS_ICON[s.status] or '·'
-      local status_tag = icon .. ' ' .. (s.status ~= '' and s.status or '—')
-      local words_tag  = s.words .. 'w'
-      local gap = math.max(1, inner - #s.fname - #status_tag - #words_tag - 2)
-      local hdr = s.fname .. string.rep(' ', gap) .. status_tag .. '  ' .. words_tag
-      ls[#ls + 1] = tl .. bar .. tr
-      ls[#ls + 1] = si .. ' ' .. hdr:sub(1, inner - 1)
-                      .. string.rep(' ', math.max(0, inner - 1 - #hdr)) .. ' ' .. si
-      ls[#ls + 1] = si .. string.rep(' ', inner + 1) .. si
-
-      local body = s.summary ~= '' and s.summary or '(no summary)'
-      if s.keywords ~= '' then body = body .. '  ·  ' .. s.keywords end
-      local bw = inner - 2
-      repeat
-        local seg = body:sub(1, bw)
-        if #body > bw then
-          local cut = seg:match '(.*)%s'
-          if cut and #cut > 2 then seg = cut end
+        idx_to_line[i] = #ls + 1
+        local sel = (i == cur) and move_mode
+        local tl, tr, bl, br, si, bar
+        if sel then
+          tl, tr, bl, br, si = '╔', '╗', '╚', '╝', '║'
+          bar = string.rep('═', inner)
+        elseif s.orphan then
+          tl, tr, bl, br, si = '╭', '╮', '╰', '╯', '│'
+          bar = string.rep('─', inner)
+        else
+          tl, tr, bl, br, si = '┌', '┐', '└', '┘', '│'
+          bar = string.rep('─', inner)
         end
-        ls[#ls + 1] = si .. ' ' .. seg .. string.rep(' ', bw - #seg) .. ' ' .. si
-        body = body:sub(#seg + 1):gsub('^%s+', '')
-      until body == ''
 
-      ls[#ls + 1] = bl .. bar .. br
-      ls[#ls + 1] = ''
+        local icon       = STATUS_ICON[s.status] or '·'
+        local status_tag = icon .. ' ' .. (s.status ~= '' and s.status or '—')
+        local words_tag  = s.words .. 'w'
+        local gap = math.max(1, inner - #s.fname - #status_tag - #words_tag - 2)
+        local hdr = s.fname .. string.rep(' ', gap) .. status_tag .. '  ' .. words_tag
+        ls[#ls + 1] = tl .. bar .. tr
+        ls[#ls + 1] = si .. ' ' .. hdr:sub(1, inner - 1)
+                        .. string.rep(' ', math.max(0, inner - 1 - #hdr)) .. ' ' .. si
+        ls[#ls + 1] = si .. string.rep(' ', inner + 1) .. si
+
+        local body = s.summary ~= '' and s.summary or '(no summary)'
+        if s.keywords ~= '' then body = body .. '  ·  ' .. s.keywords end
+        local bw = inner - 2
+        repeat
+          local seg = body:sub(1, bw)
+          if #body > bw then
+            local cut = seg:match '(.*)%s'
+            if cut and #cut > 2 then seg = cut end
+          end
+          ls[#ls + 1] = si .. ' ' .. seg .. string.rep(' ', bw - #seg) .. ' ' .. si
+          body = body:sub(#seg + 1):gsub('^%s+', '')
+        until body == ''
+
+        ls[#ls + 1] = bl .. bar .. br
+        ls[#ls + 1] = ''
+      end
     end
     return ls
   end
@@ -576,10 +588,14 @@ local function cmd_corkboard()
   scroll_to_cur()
 
   vim.keymap.set('n', 'j', function()
-    if cur < #order then cur = cur + 1; redraw() end
+    local next = cur + 1
+    if order[next] and order[next].sep then next = next + 1 end
+    if next <= #order then cur = next; redraw() end
   end, { buffer = buf, silent = true })
   vim.keymap.set('n', 'k', function()
-    if cur > 1 then cur = cur - 1; redraw() end
+    local prev = cur - 1
+    if order[prev] and order[prev].sep then prev = prev - 1 end
+    if prev >= 1 then cur = prev; redraw() end
   end, { buffer = buf, silent = true })
   vim.keymap.set('n', 'm', function()
     move_mode = not move_mode; redraw()
@@ -596,36 +612,81 @@ local function cmd_corkboard()
   end, { buffer = buf, silent = true })
   vim.keymap.set('n', '<CR>', function()
     if move_mode and pfile then
-      -- Find the last position in order[] that was originally included.
-      -- Everything up to that position becomes the new manuscript, which
-      -- lets orphans be promoted by moving them above an included section.
-      local last_included_pos = 0
+      -- The separator sentinel marks the manuscript boundary.
+      -- Everything before it goes into index.qmd; everything after stays out.
+      local sep_idx = nil
       for i, s in ipairs(order) do
-        if not s.orphan then last_included_pos = i end
+        if s.sep then sep_idx = i; break end
+      end
+      if not sep_idx then
+        vim.api.nvim_win_close(win, true)
+        return
       end
 
-      -- Build include lines for sections 1..last_included_pos.
       local sections_dir = vim.fn.fnamemodify(sp, ':t')
-      local new_includes = {}
-      for i = 1, last_included_pos do
+
+      -- Walk cards before the separator, separating reordered originals from promoted orphans.
+      -- `rank` tracks how many originally-included sections we've passed so far;
+      -- promoted orphans get inserted after include_pos[rank].idx.
+      local reordered = {}       -- originally-included sections in their new order
+      local insertions = {}      -- rank -> list of new include lines (in order)
+      local rank = 0
+      for i = 1, sep_idx - 1 do
         local s = order[i]
-        if fname_to_line[s.fname] then
-          new_includes[#new_includes + 1] = fname_to_line[s.fname]
+        if not s.orphan then
+          rank = rank + 1
+          reordered[#reordered + 1] = s
         else
-          -- orphan being promoted: construct a new include line
-          new_includes[#new_includes + 1] = '{{< include ' .. sections_dir .. '/' .. s.fname .. ' >}}'
+          insertions[rank] = insertions[rank] or {}
+          table.insert(insertions[rank],
+            '{{< include ' .. sections_dir .. '/' .. s.fname .. ' >}}')
         end
       end
 
-      -- Replace the include block in plines (min_idx..max_idx) with new_includes.
-      local min_idx = include_pos[1].idx
-      local max_idx = include_pos[#include_pos].idx
-      local new_plines = {}
-      for i = 1, min_idx - 1 do new_plines[#new_plines + 1] = plines[i] end
-      for _, l in ipairs(new_includes) do new_plines[#new_plines + 1] = l end
-      for i = max_idx + 1, #plines do new_plines[#new_plines + 1] = plines[i] end
+      -- Step 1: swap originally-included sections in-place (no line-count change).
+      -- include_pos[i].idx holds the plines index of the i-th original include line.
+      for i, s in ipairs(reordered) do
+        if include_pos[i] then
+          plines[include_pos[i].idx] = fname_to_line[s.fname]
+        end
+      end
 
-      vim.fn.writefile(new_plines, pfile)
+      -- Step 2 (pre): remove include lines for sections demoted below the separator.
+      -- include_pos is sorted ascending by line number, so demoted entries (#reordered+1..)
+      -- always sit at higher indices than promotion targets — safe to remove first.
+      for i = #include_pos, #reordered + 1, -1 do
+        table.remove(plines, include_pos[i].idx)
+      end
+
+      -- Step 3: insert promoted orphans. Process highest rank first so lower-ranked
+      -- insertions (earlier in the file) don't shift the indices of later ones.
+      local ranks_desc = {}
+      for r in pairs(insertions) do ranks_desc[#ranks_desc + 1] = r end
+      table.sort(ranks_desc, function(a, b) return a > b end)
+
+      for _, r in ipairs(ranks_desc) do
+        local lines = insertions[r]
+        local after_idx
+        if r > 0 and include_pos[r] then
+          after_idx = include_pos[r].idx
+        elseif include_pos[1] then
+          -- rank 0: orphan moves before the very first include
+          after_idx = include_pos[1].idx - 1
+        end
+        if after_idx then
+          -- Insert blank, lines[1..N], blank — all at after_idx+1 in reverse
+          -- so the final order is correct (last inserted lands at after_idx+1).
+          table.insert(plines, after_idx + 1, '')
+          for j = #lines, 1, -1 do
+            table.insert(plines, after_idx + 1, lines[j])
+          end
+          if plines[after_idx] ~= '' then
+            table.insert(plines, after_idx + 1, '')
+          end
+        end
+      end
+
+      vim.fn.writefile(plines, pfile)
       vim.api.nvim_win_close(win, true)
       vim.notify('[binder] order saved to ' .. vim.fn.fnamemodify(pfile, ':t'))
       local pbuf = vim.fn.bufnr(pfile)
