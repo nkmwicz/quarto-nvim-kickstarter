@@ -244,15 +244,8 @@ end
 local function cmd_new()
   local sp = require_sections()
   if not sp then return end
-  local existing = vim.fn.globpath(sp, '_*.qmd', false, true)
-  local max_n = 0
-  for _, f in ipairs(existing) do
-    local n = tonumber(vim.fn.fnamemodify(f, ':t'):match '^_(%d+)')
-    if n and n > max_n then max_n = n end
-  end
-  local num = string.format('%02d', max_n + 1)
   vim.ui.input(
-    { prompt = 'Section name (→ _' .. num .. '-<name>.qmd): ' },
+    { prompt = 'Section name (→ <name>.qmd): ' },
     function(name)
       if not name or name == '' then return end
       name = name:lower():gsub('%s+', '-'):gsub('[^%w%-]', '')
@@ -260,7 +253,7 @@ local function cmd_new()
         vim.notify('[binder] invalid name', vim.log.levels.WARN)
         return
       end
-      local fname = '_' .. num .. '-' .. name .. '.qmd'
+      local fname = name .. '.qmd'
       local fpath = sp .. '/' .. fname
       if vim.fn.filereadable(fpath) == 1 then
         vim.notify('[binder] file already exists: ' .. fname, vim.log.levels.WARN)
