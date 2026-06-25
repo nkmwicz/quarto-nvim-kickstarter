@@ -542,7 +542,7 @@ local function cmd_corkboard()
     if move_mode then
       return ' j/k · select   K/J · move card   m · move[on]   ↵ · save order   q · close '
     else
-      return ' j/k · select   m · move[off]   ↵ · open   q · close '
+      return ' j/k · select   e · edit summary   m · move[off]   ↵ · open   q · close '
     end
   end
 
@@ -607,6 +607,19 @@ local function cmd_corkboard()
       vim.api.nvim_win_close(win, true)
       vim.cmd('edit ' .. vim.fn.fnameescape(order[cur].path))
     end
+  end, { buffer = buf, silent = true })
+  vim.keymap.set('n', 'e', function()
+    if move_mode then return end
+    local s = order[cur]
+    vim.ui.input(
+      { prompt = 'Summary: ', default = s.summary },
+      function(input)
+        if input == nil then return end
+        set_meta_field(s.path, 'summary', input)
+        s.summary = input
+        redraw()
+      end
+    )
   end, { buffer = buf, silent = true })
   close_keys(buf, win)
 end
@@ -821,6 +834,85 @@ local function cmd_report()
   close_keys(buf, win)
 end
 
+-- ── bN: section notes ────────────────────────────────────────────────────────
+
+local function cmd_notes()
+  if not require_section_file() then return end
+  local fpath  = vim.fn.expand '%:p'
+  local sp     = vim.fn.fnamemodify(fpath, ':h')
+  local ndir   = sp .. '/notes'
+  if vim.fn.isdirectory(ndir) == 0 then vim.fn.mkdir(ndir, 'p') end
+  local fname  = vim.fn.fnamemodify(fpath, ':t:r')
+  local npath  = ndir .. '/' .. fname .. '.md'
+  if vim.fn.filereadable(npath) == 0 then
+    vim.fn.writefile({ '# Notes: ' .. fname, '', '' }, npath)
+  end
+  vim.cmd('vsplit ' .. vim.fn.fnameescape(npath))
+end
+
+-- ── biw: word count ───────────────────────────────────────────────────────────
+
+local function cmd_word_count()
+  local sp = require_sections()
+  if not sp then return end
+  local project_dir = vim.fn.fnamemodify(sp, ':h')
+  local config_file = project_dir .. '/.binder.json'
+
+  local word_target = nil
+  local cf = io.open(config_file, 'r')
+  if cf then
+    local raw = cf:read '*all'
+    cf:close()
+    local t = raw:match '"word_target"%s*:%s*(%d+)'
+    if t then word_target = tonumber(t) end
+  end
+
+  local sections = collect_sections_ordered(sp)
+  local total = 0
+  for _, s in ipairs(sections) do total = total + s.words end
+
+  local lines = {}
+  if word_target then
+    local pct    = math.floor(total / word_target * 100 + 0.5)
+    local bar_w  = 38
+    local filled = math.min(bar_w, math.floor(bar_w * total / word_target))
+    lines[#lines + 1] = string.format('  %d / %d words  (%d%%)', total, word_target, pct)
+    lines[#lines + 1] = '  [' .. string.rep('█', filled) .. string.rep('░', bar_w - filled) .. ']'
+  else
+    lines[#lines + 1] = string.format('  %d words  (no target set)', total)
+  end
+  lines[#lines + 1] = ''
+
+  local C1, C2 = 32, 6
+  local row_fmt = string.format('  %%-%ds  %%%ds', C1, C2)
+  for _, s in ipairs(sections) do
+    lines[#lines + 1] = string.format(row_fmt, s.fname, s.words .. 'w')
+  end
+  lines[#lines + 1] = ''
+  lines[#lines + 1] = '  t · set target    q · close'
+
+  local wbuf, wwin = open_float(lines, 'Word Count', { width = math.floor(vim.o.columns * 0.45) })
+
+  vim.keymap.set('n', 't', function()
+    vim.ui.input(
+      { prompt = 'Word target: ', default = word_target and tostring(word_target) or '' },
+      function(input)
+        if not input or input == '' then return end
+        local n = tonumber(input)
+        if not n then
+          vim.notify('[binder] invalid number', vim.log.levels.WARN)
+          return
+        end
+        local wf = io.open(config_file, 'w')
+        if wf then wf:write('{"word_target": ' .. n .. '}\n'); wf:close() end
+        vim.api.nvim_win_close(wwin, true)
+        cmd_word_count()
+      end
+    )
+  end, { buffer = wbuf, silent = true })
+  close_keys(wbuf, wwin)
+end
+
 -- ── keymap registration ───────────────────────────────────────────────────────
 
 function M.setup()
@@ -845,9 +937,11 @@ function M.setup()
     { '<leader>bc', cmd_corkboard, desc = '[c]orkboard' },
     { '<leader>bf', cmd_focus,     desc = '[f]ocus mode' },
     { '<leader>bh', cmd_history,   desc = '[h]istory' },
+    { '<leader>bN', cmd_notes,     desc = '[N]otes' },
 
     { '<leader>bi',  group = '[i]nspector' },
     { '<leader>bir', cmd_report,   desc = '[r]eport' },
+    { '<leader>biw', cmd_word_count, desc = '[w]ord count' },
     { '<leader>bis', function()
         local sp = require_sections()
         if sp then tb.live_grep {
