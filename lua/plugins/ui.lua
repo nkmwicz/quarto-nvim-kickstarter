@@ -26,9 +26,94 @@ return {
           -- and the db path stays at its default ~/Zotero/zotero.sqlite.
           -- Call setup explicitly here with the actual snap install path.
           require('zotero').setup {
-            zotero_db_path    = '/home/nathan/snap/zotero-snap/common/Zotero/zotero.sqlite',
+            zotero_db_path      = '/home/nathan/snap/zotero-snap/common/Zotero/zotero.sqlite',
             zotero_storage_path = '/home/nathan/snap/zotero-snap/common/Zotero/storage',
           }
+
+          -- Patch entry_to_bib_entry to write standard BibTeX instead of
+          -- Zotero's internal field names (e.g. @article not @journalArticle,
+          -- journal not publicationTitle, number not issue).
+          local bib = require 'zotero.bib'
+
+          local type_map = {
+            journalArticle   = 'article',
+            magazineArticle  = 'article',
+            newspaperArticle = 'article',
+            book             = 'book',
+            bookSection      = 'incollection',
+            encyclopediaArticle = 'incollection',
+            conferencePaper  = 'inproceedings',
+            thesis           = 'phdthesis',
+            report           = 'techreport',
+            manuscript       = 'unpublished',
+            webpage          = 'misc',
+            letter           = 'misc',
+            interview        = 'misc',
+          }
+
+          -- false = skip the field entirely
+          local field_map = {
+            publicationTitle    = 'journal',   -- remapped per type below for book sections
+            issue               = 'number',
+            place               = 'address',
+            DOI                 = 'doi',
+            ISSN                = 'issn',
+            ISBN                = 'isbn',
+            accessDate          = false,
+            libraryCatalog      = false,
+            extra               = false,
+            citationKey         = false,
+            key                 = false,
+            journalAbbreviation = false,
+            rights              = false,
+            date                = false,
+            shortTitle          = false,
+            abstractNote        = false,
+            numPages            = false,
+          }
+
+          bib.entry_to_bib_entry = function(entry)
+            local item     = entry.value
+            local citekey  = item.citekey or ''
+            local ztype    = item.itemType or ''
+            local btype    = type_map[ztype] or 'misc'
+            local is_chapter = ztype == 'bookSection' or ztype == 'encyclopediaArticle'
+
+            local lines = { '@' .. btype .. '{' .. citekey .. ',' }
+
+            if item.creators then
+              local parts = {}
+              for _, c in ipairs(item.creators) do
+                parts[#parts + 1] = (c.lastName or '') .. ', ' .. (c.firstName or '')
+              end
+              lines[#lines + 1] = '  author = {' .. table.concat(parts, ' and ') .. '},'
+            end
+
+            for k, v in pairs(item) do
+              if k == 'creators' or k == 'citekey' or k == 'itemType' or k == 'attachment' then
+                -- handled separately or skipped
+              elseif type(v) ~= 'string' or v == '' then
+                -- skip
+              else
+                local mapped = field_map[k]
+                if mapped == false then
+                  -- explicitly suppressed
+                elseif mapped == 'journal' then
+                  local out = is_chapter and 'booktitle' or 'journal'
+                  lines[#lines + 1] = '  ' .. out .. ' = {' .. v .. '},'
+                elseif mapped then
+                  lines[#lines + 1] = '  ' .. mapped .. ' = {' .. v .. '},'
+                else
+                  lines[#lines + 1] = '  ' .. k .. ' = {' .. v .. '},'
+                end
+              end
+            end
+
+            lines[#lines + 1] = '}'
+            lines[#lines + 1] = ''
+            return table.concat(lines, '\n')
+          end
+
           vim.keymap.set('n', '<leader>fz', ':Telescope zotero<cr>', { desc = '[z]otero' })
         end,
       },
