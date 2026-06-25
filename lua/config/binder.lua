@@ -494,7 +494,14 @@ local function cmd_corkboard()
   local function render()
     local ls = {}
     idx_to_line = {}
+    local sep_done = false
     for i, s in ipairs(order) do
+      if s.orphan and not sep_done then
+        sep_done = true
+        local label = '  ── not in manuscript '
+        ls[#ls + 1] = label .. string.rep('─', inner + 2 - #label)
+        ls[#ls + 1] = ''
+      end
       idx_to_line[i] = #ls + 1
       local sel = (i == cur) and move_mode
       local tl, tr, bl, br, si, bar
