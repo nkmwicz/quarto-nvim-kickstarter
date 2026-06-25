@@ -495,7 +495,7 @@ local function cmd_corkboard()
   for i, s in ipairs(sections) do order[i] = s end
   local cur       = 1
   local move_mode = false
-  local inner     = 54
+  local inner     = 68
   local idx_to_line = {}   -- card index → first buffer line, updated by render()
 
   local function render()
@@ -547,9 +547,9 @@ local function cmd_corkboard()
 
   local function get_footer()
     if move_mode then
-      return ' j/k · select   K/J · move card   m · move[on]   ↵ · save order   q · close '
+      return ' j/k · nav   K/J · move   m · move[on]   ↵ · save   q · close '
     else
-      return ' j/k · select   e · edit summary   n · new   m · move[off]   ↵ · open   q · close '
+      return ' j/k · nav   e · edit   n · new   m · reorder   ↵ · open   q · close '
     end
   end
 
