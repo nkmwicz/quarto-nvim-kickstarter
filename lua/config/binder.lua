@@ -248,7 +248,7 @@ local function cmd_new()
     { prompt = 'Section name (→ <name>.qmd): ' },
     function(name)
       if not name or name == '' then return end
-      name = name:lower():gsub('%s+', '-'):gsub('[^%w%-]', '')
+      name = name:lower():gsub('%s+', '-'):gsub('[^%w%_%-]', '')
       if name == '' then
         vim.notify('[binder] invalid name', vim.log.levels.WARN)
         return
