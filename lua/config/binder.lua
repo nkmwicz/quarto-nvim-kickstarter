@@ -596,16 +596,36 @@ local function cmd_corkboard()
   end, { buffer = buf, silent = true })
   vim.keymap.set('n', '<CR>', function()
     if move_mode and pfile then
-      local n = 0
-      for _, s in ipairs(order) do
+      -- Find the last position in order[] that was originally included.
+      -- Everything up to that position becomes the new manuscript, which
+      -- lets orphans be promoted by moving them above an included section.
+      local last_included_pos = 0
+      for i, s in ipairs(order) do
+        if not s.orphan then last_included_pos = i end
+      end
+
+      -- Build include lines for sections 1..last_included_pos.
+      local sections_dir = vim.fn.fnamemodify(sp, ':t')
+      local new_includes = {}
+      for i = 1, last_included_pos do
+        local s = order[i]
         if fname_to_line[s.fname] then
-          n = n + 1
-          if include_pos[n] then
-            plines[include_pos[n].idx] = fname_to_line[s.fname]
-          end
+          new_includes[#new_includes + 1] = fname_to_line[s.fname]
+        else
+          -- orphan being promoted: construct a new include line
+          new_includes[#new_includes + 1] = '{{< include ' .. sections_dir .. '/' .. s.fname .. ' >}}'
         end
       end
-      vim.fn.writefile(plines, pfile)
+
+      -- Replace the include block in plines (min_idx..max_idx) with new_includes.
+      local min_idx = include_pos[1].idx
+      local max_idx = include_pos[#include_pos].idx
+      local new_plines = {}
+      for i = 1, min_idx - 1 do new_plines[#new_plines + 1] = plines[i] end
+      for _, l in ipairs(new_includes) do new_plines[#new_plines + 1] = l end
+      for i = max_idx + 1, #plines do new_plines[#new_plines + 1] = plines[i] end
+
+      vim.fn.writefile(new_plines, pfile)
       vim.api.nvim_win_close(win, true)
       vim.notify('[binder] order saved to ' .. vim.fn.fnamemodify(pfile, ':t'))
       local pbuf = vim.fn.bufnr(pfile)
