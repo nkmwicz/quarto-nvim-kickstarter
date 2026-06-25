@@ -165,6 +165,7 @@ local function collect_sections_ordered(sp)
           summary  = meta.summary  or '',
           keywords = meta.keywords or '',
           words    = word_count(full),
+          orphan   = false,
         }
       end
     end
@@ -172,7 +173,10 @@ local function collect_sections_ordered(sp)
 
   -- Append orphaned section files not referenced in the parent.
   for _, s in ipairs(collect_sections(sp)) do
-    if not seen[s.fname] then ordered[#ordered + 1] = s end
+    if not seen[s.fname] then
+      s.orphan = true
+      ordered[#ordered + 1] = s
+    end
   end
 
   return ordered
@@ -504,6 +508,9 @@ local function cmd_corkboard()
       if sel then
         tl, tr, bl, br, si = '╔', '╗', '╚', '╝', '║'
         bar = string.rep('═', inner)
+      elseif s.orphan then
+        tl, tr, bl, br, si = '╭', '╮', '╰', '╯', '│'
+        bar = string.rep('─', inner)
       else
         tl, tr, bl, br, si = '┌', '┐', '└', '┘', '│'
         bar = string.rep('─', inner)
@@ -542,7 +549,7 @@ local function cmd_corkboard()
     if move_mode then
       return ' j/k · select   K/J · move card   m · move[on]   ↵ · save order   q · close '
     else
-      return ' j/k · select   e · edit summary   m · move[off]   ↵ · open   q · close '
+      return ' j/k · select   e · edit summary   n · new   m · move[off]   ↵ · open   q · close '
     end
   end
 
@@ -620,6 +627,10 @@ local function cmd_corkboard()
         redraw()
       end
     )
+  end, { buffer = buf, silent = true })
+  vim.keymap.set('n', 'n', function()
+    vim.api.nvim_win_close(win, true)
+    vim.schedule(cmd_new)
   end, { buffer = buf, silent = true })
   close_keys(buf, win)
 end
