@@ -334,3 +334,4 @@ wk.add({
 }, { mode = 'n'})
 
 require('config.binder').setup()
+require('config.research').setup()
