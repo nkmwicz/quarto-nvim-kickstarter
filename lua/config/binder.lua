@@ -3,6 +3,8 @@
 
 local M = {}
 
+local _session_baseline = nil  -- words at session start; nil until first cmd_word_count call
+
 -- ── utilities ────────────────────────────────────────────────────────────────
 
 -- Resolve the sections/ directory relative to the current file.
@@ -93,21 +95,34 @@ local function set_meta_field(fpath, key, value)
   return true
 end
 
--- Count prose words in a file, skipping the metadata block and code fences.
+-- Count prose words in a file, skipping YAML/HTML metadata, code fences, and HTML comments.
 local function word_count(fpath)
-  local n, in_meta, in_code, meta_end = 0, false, false, ''
+  local n = 0
+  local in_meta, meta_end = false, ''
+  local in_code    = false
+  local in_comment = false
+
   for i, line in ipairs(vim.fn.readfile(fpath)) do
     if i == 1 and line == '---' then
       in_meta, meta_end = true, '^%-%-%-'
     elseif i == 1 and line:match '^<!%-%-' then
       in_meta, meta_end = true, '%-%->'
-    elseif in_meta and line:match(meta_end) then
-      in_meta = false
-    elseif not in_meta then
-      if line:match '^%s*```' then
-        in_code = not in_code
-      elseif not in_code then
-        local text = line:gsub('%b[]%b()', ''):gsub('`[^`]*`', ''):gsub('^#+%s*', '')
+    elseif in_meta then
+      if line:match(meta_end) then in_meta = false end
+    elseif in_comment then
+      if line:match '%-%->' then in_comment = false end
+    elseif line:match '^%s*```' then
+      in_code = not in_code
+    elseif not in_code then
+      if line:match '^<!%-%-' then
+        -- block comment: skip until closing -->
+        if not line:match '%-%->' then in_comment = true end
+      else
+        local text = line
+          :gsub('<!%-%-.-%-%->',  '')   -- strip inline <!-- ... --> fragments
+          :gsub('%b[]%b()', '')
+          :gsub('`[^`]*`', '')
+          :gsub('^#+%s*', '')
         for _ in text:gmatch '%S+' do n = n + 1 end
       end
     end
@@ -950,58 +965,108 @@ local function cmd_word_count()
   local project_dir = vim.fn.fnamemodify(sp, ':h')
   local config_file = project_dir .. '/.binder.json'
 
-  local word_target = nil
+  local word_target, session_target = nil, nil
   local cf = io.open(config_file, 'r')
   if cf then
     local raw = cf:read '*all'
     cf:close()
-    local t = raw:match '"word_target"%s*:%s*(%d+)'
-    if t then word_target = tonumber(t) end
+    local wt = raw:match '"word_target"%s*:%s*(%d+)'
+    if wt then word_target = tonumber(wt) end
+    local st = raw:match '"session_target"%s*:%s*(%d+)'
+    if st then session_target = tonumber(st) end
   end
 
   local sections = collect_sections_ordered(sp)
   local total = 0
   for _, s in ipairs(sections) do total = total + s.words end
 
+  -- initialise session baseline on first call this nvim session
+  if not _session_baseline then _session_baseline = total end
+  local session_words = total - _session_baseline
+
+  local bar_w = 38
+  local function bar(current, target)
+    local filled = math.min(bar_w, math.floor(bar_w * current / target))
+    return '  [' .. string.rep('█', filled) .. string.rep('░', bar_w - filled) .. ']'
+  end
+
   local lines = {}
+
+  -- manuscript total
   if word_target then
-    local pct    = math.floor(total / word_target * 100 + 0.5)
-    local bar_w  = 38
-    local filled = math.min(bar_w, math.floor(bar_w * total / word_target))
-    lines[#lines + 1] = string.format('  %d / %d words  (%d%%)', total, word_target, pct)
-    lines[#lines + 1] = '  [' .. string.rep('█', filled) .. string.rep('░', bar_w - filled) .. ']'
+    local pct = math.floor(total / word_target * 100 + 0.5)
+    lines[#lines + 1] = string.format('  Manuscript  %d / %d words  (%d%%)', total, word_target, pct)
+    lines[#lines + 1] = bar(total, word_target)
   else
-    lines[#lines + 1] = string.format('  %d words  (no target set)', total)
+    lines[#lines + 1] = string.format('  Manuscript  %d words', total)
   end
   lines[#lines + 1] = ''
 
+  -- session
+  local sw = math.max(0, session_words)
+  if session_target then
+    local pct = math.floor(sw / session_target * 100 + 0.5)
+    lines[#lines + 1] = string.format('  Session     +%d / %d words  (%d%%)', session_words, session_target, pct)
+    lines[#lines + 1] = bar(sw, session_target)
+  else
+    lines[#lines + 1] = string.format('  Session     +%d words', session_words)
+  end
+  lines[#lines + 1] = ''
+
+  -- per-section breakdown
   local C1, C2 = 32, 6
   local row_fmt = string.format('  %%-%ds  %%%ds', C1, C2)
   for _, s in ipairs(sections) do
     lines[#lines + 1] = string.format(row_fmt, s.fname, s.words .. 'w')
   end
   lines[#lines + 1] = ''
-  lines[#lines + 1] = '  t · set target    q · close'
+  lines[#lines + 1] = '  t · manuscript target    s · session target'
+  lines[#lines + 1] = '  r · reset session        q · close'
 
-  local wbuf, wwin = open_float(lines, 'Word Count', { width = math.floor(vim.o.columns * 0.45) })
+  local wbuf, wwin = open_float(lines, 'Word Count', { width = math.floor(vim.o.columns * 0.50) })
+
+  local function save_config(wt, st)
+    local parts = {}
+    if wt then parts[#parts + 1] = '"word_target": '   .. wt end
+    if st then parts[#parts + 1] = '"session_target": ' .. st end
+    local wf = io.open(config_file, 'w')
+    if wf then wf:write('{' .. table.concat(parts, ', ') .. '}\n'); wf:close() end
+  end
 
   vim.keymap.set('n', 't', function()
     vim.ui.input(
-      { prompt = 'Word target: ', default = word_target and tostring(word_target) or '' },
+      { prompt = 'Manuscript target: ', default = word_target and tostring(word_target) or '' },
       function(input)
         if not input or input == '' then return end
         local n = tonumber(input)
-        if not n then
-          vim.notify('[binder] invalid number', vim.log.levels.WARN)
-          return
-        end
-        local wf = io.open(config_file, 'w')
-        if wf then wf:write('{"word_target": ' .. n .. '}\n'); wf:close() end
+        if not n then vim.notify('[binder] invalid number', vim.log.levels.WARN); return end
+        save_config(n, session_target)
         vim.api.nvim_win_close(wwin, true)
         cmd_word_count()
       end
     )
   end, { buffer = wbuf, silent = true })
+
+  vim.keymap.set('n', 's', function()
+    vim.ui.input(
+      { prompt = 'Session target: ', default = session_target and tostring(session_target) or '' },
+      function(input)
+        if not input or input == '' then return end
+        local n = tonumber(input)
+        if not n then vim.notify('[binder] invalid number', vim.log.levels.WARN); return end
+        save_config(word_target, n)
+        vim.api.nvim_win_close(wwin, true)
+        cmd_word_count()
+      end
+    )
+  end, { buffer = wbuf, silent = true })
+
+  vim.keymap.set('n', 'r', function()
+    _session_baseline = total
+    vim.api.nvim_win_close(wwin, true)
+    cmd_word_count()
+  end, { buffer = wbuf, silent = true })
+
   close_keys(wbuf, wwin)
 end
 
