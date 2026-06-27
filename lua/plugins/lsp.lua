@@ -126,7 +126,6 @@ return {
           'yamlls',
           'bashls',
           'vimls',
-          'r_language_server',
           'dotls',
           'marksman',
           'tailwindcss',

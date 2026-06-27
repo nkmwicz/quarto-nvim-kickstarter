@@ -4,8 +4,6 @@ local ms = vim.lsp.protocol.Methods
 
 P = vim.print
 
-vim.g['quarto_is_r_mode'] = nil
-vim.g['reticulate_running'] = false
 
 local nmap = function(key, effect)
   vim.keymap.set('n', key, effect, { silent = true, noremap = true })
@@ -61,58 +59,14 @@ imap(';', ';<c-g>u')
 
 nmap('Q', '<Nop>')
 
---- Send code to terminal with vim-slime
---- If an R terminal has been opend, this is in r_mode
---- and will handle python code via reticulate when sent
---- from a python chunk.
---- TODO: incorpoarate this into quarto-nvim plugin
---- such that QuartoRun functions get the same capabilities
---- TODO: figure out bracketed paste for reticulate python repl.
 local function send_cell()
-  if vim.b['quarto_is_r_mode'] == nil then
-    vim.fn['slime#send_cell']()
-    return
-  end
-  if vim.b['quarto_is_r_mode'] == true then
-    vim.g.slime_python_ipython = 0
-    local is_python = require('otter.tools.functions').is_otter_language_context 'python'
-    if is_python and not vim.b['reticulate_running'] then
-      vim.fn['slime#send']('reticulate::repl_python()' .. '\r')
-      vim.b['reticulate_running'] = true
-    end
-    if not is_python and vim.b['reticulate_running'] then
-      vim.fn['slime#send']('exit' .. '\r')
-      vim.b['reticulate_running'] = false
-    end
-    vim.fn['slime#send_cell']()
-  end
+  vim.fn['slime#send_cell']()
 end
 
---- Send code to terminal with vim-slime
---- If an R terminal has been opend, this is in r_mode
---- and will handle python code via reticulate when sent
---- from a python chunk.
 local slime_send_region_cmd = ':<C-u>call slime#send_op(visualmode(), 1)<CR>'
 slime_send_region_cmd = vim.api.nvim_replace_termcodes(slime_send_region_cmd, true, false, true)
 local function send_region()
-  -- if filetyps is not quarto, just send_region
-  if vim.bo.filetype ~= 'quarto' or vim.b['quarto_is_r_mode'] == nil then
-    vim.cmd('normal' .. slime_send_region_cmd)
-    return
-  end
-  if vim.b['quarto_is_r_mode'] == true then
-    vim.g.slime_python_ipython = 0
-    local is_python = require('otter.tools.functions').is_otter_language_context 'python'
-    if is_python and not vim.b['reticulate_running'] then
-      vim.fn['slime#send']('reticulate::repl_python()' .. '\r')
-      vim.b['reticulate_running'] = true
-    end
-    if not is_python and vim.b['reticulate_running'] then
-      vim.fn['slime#send']('exit' .. '\r')
-      vim.b['reticulate_running'] = false
-    end
-    vim.cmd('normal' .. slime_send_region_cmd)
-  end
+  vim.cmd('normal' .. slime_send_region_cmd)
 end
 
 -- send code with ctrl+Enter
@@ -124,18 +78,6 @@ nmap('<c-cr>', send_cell)
 nmap('<s-cr>', send_cell)
 imap('<c-cr>', send_cell)
 imap('<s-cr>', send_cell)
-
---- Show R dataframe in the browser
--- might not use what you think should be your default web browser
--- because it is a plain html file, not a link
--- see https://askubuntu.com/a/864698 for places to look for
-local function show_r_table()
-  local node = vim.treesitter.get_node { ignore_injections = false }
-  assert(node, 'no symbol found under cursor')
-  local text = vim.treesitter.get_node_text(node, 0)
-  local cmd = [[call slime#send("DT::datatable(]] .. text .. [[)" . "\r")]]
-  vim.cmd(cmd)
-end
 
 -- keep selection after indent/dedent
 vmap('>', '>gv')
@@ -186,10 +128,6 @@ local insert_code_chunk = function(lang)
   vim.api.nvim_feedkeys(keys, 'n', false)
 end
 
-local insert_r_chunk = function()
-  insert_code_chunk 'r'
-end
-
 local insert_py_chunk = function()
   insert_code_chunk 'python'
 end
@@ -228,7 +166,7 @@ wk.add({
     { "<cm-i>", insert_py_chunk, desc = "python code chunk" },
     { "<esc>", "<cmd>noh<cr>", desc = "remove search highlight" },
     { "<m-I>", insert_py_chunk, desc = "python code chunk" },
-    { "<m-i>", insert_r_chunk, desc = "r code chunk" },
+    { "<m-i>", insert_py_chunk, desc = "python code chunk" },
     { "[q", ":silent cprev<cr>", desc = "[q]uickfix prev" },
     { "]q", ":silent cnext<cr>", desc = "[q]uickfix next" },
     { "gN", "Nzzzv", desc = "center search" },
@@ -263,10 +201,8 @@ wk.add({
       mode = { "i" },
       { "<c-x><c-x>", "<c-x><c-o>", desc = "omnifunc completion" },
       { "<cm-i>", insert_py_chunk, desc = "python code chunk" },
-      { "<m-->", " <- ", desc = "assign" },
       { "<m-I>", insert_py_chunk, desc = "python code chunk" },
-      { "<m-i>", insert_r_chunk, desc = "r code chunk" },
-      { "<m-m>", " |>", desc = "pipe" },
+      { "<m-i>", insert_py_chunk, desc = "python code chunk" },
     },
 }, { mode = 'i' })
 
@@ -276,10 +212,6 @@ end
 
 local function new_terminal_python()
   new_terminal 'python'
-end
-
-local function new_terminal_r()
-  new_terminal 'R --no-save'
 end
 
 local function new_terminal_ipython()
@@ -326,7 +258,6 @@ wk.add({
     { "<leader>cj", new_terminal_julia, desc = "new [j]ulia terminal" },
     { "<leader>cn", new_terminal_shell, desc = "[n]ew terminal with shell" },
     { "<leader>cp", new_terminal_python, desc = "new [p]ython terminal" },
-    { "<leader>cr", new_terminal_r, desc = "new [R] terminal" },
     { "<leader>d", group = "[d]ebug" },
     { "<leader>dt", group = "[t]est" },
     { "<leader>e", group = "[e]dit" },
@@ -379,7 +310,6 @@ wk.add({
     { "<leader>ol", insert_lua_chunk, desc = "[l]lua code chunk" },
     { "<leader>oo", insert_ojs_chunk, desc = "[o]bservable js code chunk" },
     { "<leader>op", insert_py_chunk, desc = "[p]ython code chunk" },
-    { "<leader>or", insert_r_chunk, desc = "[r] code chunk" },
     { "<leader>q", group = "[q]uarto" },
     { "<leader>qE", function() require('otter').export(true) end, desc = "[E]xport with overwrite" },
     { "<leader>qa", ":QuartoActivate<cr>", desc = "[a]ctivate" },
@@ -391,8 +321,6 @@ wk.add({
     { "<leader>qra", ":QuartoSendAll<cr>", desc = "run [a]ll" },
     { "<leader>qrb", ":QuartoSendBelow<cr>", desc = "run [b]elow" },
     { "<leader>qrr", ":QuartoSendAbove<cr>", desc = "to cu[r]sor" },
-    { "<leader>r", group = "[r] R specific tools" },
-    { "<leader>rt", show_r_table, desc = "show [t]able" },
     { "<leader>v", group = "[v]im" },
     { "<leader>vc", ":Telescope colorscheme<cr>", desc = "[c]olortheme" },
     { "<leader>vh", ':execute "h " . expand("<cword>")<cr>', desc = "vim [h]elp for current word" },
