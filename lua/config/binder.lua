@@ -776,7 +776,7 @@ local function cmd_focus()
     height    = vim.o.lines,
     style     = 'minimal',
     focusable = false,
-    zindex    = 49,
+    zindex    = 5,
   })
   vim.wo[bd_win].winblend     = 20
   vim.wo[bd_win].winhighlight = 'Normal:BinderBackdrop'
@@ -794,7 +794,7 @@ local function cmd_focus()
     border    = require('misc.style').border,
     title     = '  ' .. fname .. ' — focus ',
     title_pos = 'center',
-    zindex    = 50,
+    zindex    = 10,
   })
   vim.wo[win].wrap       = true
   vim.wo[win].linebreak  = true
