@@ -255,9 +255,41 @@ return {
 
         local finders = require 'telescope.finders'
         local pickers = require 'telescope.pickers'
+        local previewers = require 'telescope.previewers'
         local conf = require('telescope.config').values
         local actions = require 'telescope.actions'
         local action_state = require 'telescope.actions.state'
+        local entry_display = require 'telescope.pickers.entry_display'
+
+        local type_abbrev = {
+          article       = 'art',
+          book          = 'bk',
+          incollection  = 'ch',
+          inproceedings = 'conf',
+          phdthesis     = 'phd',
+          mastersthesis = 'msc',
+          techreport    = 'rpt',
+          unpublished   = 'ms',
+          misc          = 'misc',
+        }
+
+        local displayer = entry_display.create {
+          separator = ' ',
+          items = {
+            { width = 4 },
+            { width = 24, right_justify = true },
+            { remaining = true },
+          },
+        }
+
+        local function make_display(e)
+          local abbrev = type_abbrev[e.type and e.type:lower()] or (e.type and e.type:sub(1, 4)) or '?'
+          return displayer {
+            { abbrev,                      'SpecialChar' },
+            { e.author .. ', ' .. e.year,  'Comment' },
+            { e.title,                     'Title' },
+          }
+        end
 
         pickers
           .new(opts, {
@@ -265,15 +297,22 @@ return {
             finder = finders.new_table {
               results = entries,
               entry_maker = function(e)
-                local display = string.format('%-30s %4s  %s', e.author, e.year, e.title)
                 return {
                   value = e,
-                  display = display,
+                  display = function(_) return make_display(e) end,
                   ordinal = e.author .. ' ' .. e.year .. ' ' .. e.title,
                 }
               end,
             },
             sorter = conf.generic_sorter(opts),
+            previewer = previewers.new_buffer_previewer {
+              title = 'BibTeX entry',
+              define_preview = function(self, entry)
+                local lines = vim.split(entry.value.raw, '\n')
+                vim.api.nvim_buf_set_lines(self.state.bufnr, 0, -1, false, lines)
+                vim.bo[self.state.bufnr].filetype = 'bibtex'
+              end,
+            },
             attach_mappings = function(prompt_bufnr)
               actions.select_default:replace(function()
                 actions.close(prompt_bufnr)

@@ -32,6 +32,7 @@ return {
           'mermaid',
           'norg',
           'typescript',
+          'bibtex',
         },
         highlight = {
           enable = true,
