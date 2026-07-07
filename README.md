@@ -72,6 +72,102 @@ rm -r ~/.local/share/nvim
 rm -r ~/.local/state/nvim
 ```
 
+## Binder (`<leader>b…`)
+
+A Scrivener-style non-linear writing environment for Quarto manuscript projects, implemented in `lua/config/binder.lua`. The design premise is that a historian writes arguments, not files: sections are drafted out of order, reorganised as the argument develops, and assembled into a final document only at the end.
+
+### Project structure
+
+The binder expects this layout:
+
+```
+project/
+├── manuscript.qmd          ← parent document (assembles sections via {{< include >}})
+├── sections/
+│   ├── introduction.qmd
+│   ├── chapter-one.qmd
+│   └── ...
+└── .binder.json            ← optional, stores word count targets
+```
+
+The parent document controls reading order via Quarto shortcodes:
+
+```markdown
+{{< include sections/introduction.qmd >}}
+{{< include sections/chapter-one.qmd >}}
+```
+
+The binder reads and writes these lines to track and modify section order. Sections not referenced in the parent are treated as **orphans** — visible in the corkboard and outliner but excluded from the assembled manuscript.
+
+### Section metadata
+
+Each section file carries metadata in an HTML comment block at the top:
+
+```markdown
+<!--
+status: todo
+summary: One-sentence description of this section's argument.
+keywords: diplomacy, Ottoman, 1546
+-->
+```
+
+This block is written automatically when you create a section with `<leader>bn`. Status, summary, and keywords can be updated in-file or via the inspector commands. The metadata lives in the file itself — no external database.
+
+**Status lifecycle:** `todo` → `draft` → `review` → `done`
+
+### Keymaps
+
+| Key | Description |
+|---|---|
+| `<leader>bs` | Telescope picker of all section files |
+| `<leader>bn` | Create a new section (prompts for name, creates the `.qmd` with metadata block) |
+| `<leader>bb` | Jump back to the parent document, cursor on the include line for the current section |
+| `<leader>bl` | Set status for the current section (`todo` / `draft` / `review` / `done`) |
+| `<leader>bm` | Reorder sections in the parent document (float editor, see below) |
+| `<leader>bo` | Outliner — table view of all sections with status, word count, and summary |
+| `<leader>bc` | Corkboard — card view of all sections (see below) |
+| `<leader>bf` | Focus mode — open the file under the cursor in a centred float with a dimmed backdrop |
+| `<leader>bh` | Git history for the current section file |
+| `<leader>bN` | Open (or create) a section-local notes file in a vertical split |
+| `<leader>bir` | Status report — breakdown of all sections by status with percentages |
+| `<leader>biw` | Word count — total and session words with optional progress bars |
+| `<leader>bis` | Live grep across `sections/` pre-filled with `status:` |
+| `<leader>bik` | Live grep across `sections/` pre-filled with `keywords:` |
+
+### Reorder (`<leader>bm`)
+
+Opens a float listing all manuscript sections in their current order with status badges. Navigate with `j`/`k`, move sections up/down with `K`/`J`, press `<Enter>` to write the new order back to the parent document, `q` to cancel.
+
+### Corkboard (`<leader>bc`)
+
+Displays each section as a card showing its filename, status icon, word count, summary, and keywords. Cards above a separator line are in the manuscript; cards below are orphans.
+
+- `j`/`k` — navigate between cards
+- `m` — toggle move mode (card border changes to double-line when active)
+- `K`/`J` in move mode — reorder cards; crossing the separator promotes/demotes a section to/from the manuscript
+- `<Enter>` in move mode — write the new order to the parent document
+- `<Enter>` in normal mode — open the section for editing
+- `e` — edit the current card's summary inline
+- `n` — create a new section
+- `q` / `<Esc>` — close
+
+### Focus mode (`<leader>bf`)
+
+Position your cursor on an `{{< include sections/... >}}` line in the parent document (or on any file path in a section) and press `<leader>bf`. The referenced file opens in a centred float with a dimmed backdrop — no splits, no distractions. Press `<leader>bf` again or `q` to close and return to the parent.
+
+### Word count (`<leader>biw`)
+
+Counts prose words only: YAML front matter, HTML comment metadata blocks, and code fences are excluded. Shows total manuscript words and session words (words written since the current Neovim session started, or since the last reset).
+
+In the word count float:
+- `t` — set a manuscript word target (stored in `.binder.json`)
+- `s` — set a session word target
+- `r` — reset the session counter
+
+Progress bars appear automatically once targets are set.
+
+---
+
 ## Zotero integration (`<leader>fz`)
 
 `<leader>fz` opens a Telescope picker backed by a Better BibTeX automatic export of your Zotero library. Selecting an entry does two things:
