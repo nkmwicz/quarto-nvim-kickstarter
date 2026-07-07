@@ -72,6 +72,38 @@ rm -r ~/.local/share/nvim
 rm -r ~/.local/state/nvim
 ```
 
+## Zotero integration (`<leader>fz`)
+
+`<leader>fz` opens a Telescope picker backed by a Better BibTeX automatic export of your Zotero library. Selecting an entry does two things:
+
+1. Inserts `@citekey` at the cursor in the current buffer.
+2. Appends the full BibTeX entry to the project's `references.bib` file (located by reading `bibliography:` from the document's YAML front matter or the project's `_quarto.yml`). If `references.bib` does not yet exist, you are prompted to create it. If the entry is already present, nothing is appended.
+
+Because entries come directly from the BBT export file, field names are already proper BibTeX (`journal`, `author`, `address`, etc.) — no manual remapping is needed. The preview pane shows the full raw BibTeX entry so you can distinguish between duplicates or entries with incomplete metadata before selecting.
+
+### Setup
+
+**Better BibTeX** must be installed in Zotero. Configure an automatic export of your whole library:
+
+- Zotero → Tools → Better BibTeX → Automatic Export
+- Format: **BibTeX**
+- Output file: `~/home/zotero-plugins/zotero-library.bib` (or the platform path that maps to it)
+
+The picker reads from `~/home/zotero-plugins/zotero-library.bib`. If that file is not found, a warning is shown in the status bar with the expected path.
+
+### WSL note
+
+On WSL, create a symlink from the WSL path to the Windows export location rather than symlinking directly to the Zotero SQLite databases (SQLite requires POSIX file locks which NTFS does not support; plain `.bib` files have no such constraint):
+
+```bash
+mkdir -p ~/home/zotero-plugins
+ln -s /mnt/c/Users/<you>/home/zotero-plugins/zotero-library.bib ~/home/zotero-plugins/zotero-library.bib
+```
+
+### Reverting to the SQLite-based picker
+
+The original `telescope-zotero` SQLite-backed implementation is preserved as a commented-out block in `lua/plugins/ui.lua`. To restore it, uncomment the block inside the `jmbuhr/telescope-zotero.nvim` config function, remove the `zotero_bib_picker` function from the telescope config, and re-enable `telescope.load_extension 'zotero'`.
+
 ## Screenshots
 
 ![image](https://user-images.githubusercontent.com/17450586/210392419-3ee2b3e3-e805-4e36-99ab-6922abe3a66b.png)
