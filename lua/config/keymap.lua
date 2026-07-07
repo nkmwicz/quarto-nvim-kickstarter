@@ -21,8 +21,104 @@ local cmap = function(key, effect)
   vim.keymap.set('c', key, effect, { silent = true, noremap = true })
 end
 
+-- Code action picker. When ltex is attached, appends magic comment options to the
+-- standard LSP action list so you can insert <!-- ltex: ... --> directives inline.
+local function code_action()
+  local bufnr = vim.api.nvim_get_current_buf()
+  local ltex_clients = vim.lsp.get_clients { bufnr = bufnr, name = 'ltex' }
+
+  if #ltex_clients == 0 then
+    vim.lsp.buf.code_action()
+    return
+  end
+
+  local lnum = vim.api.nvim_win_get_cursor(0)[1] - 1  -- 0-indexed
+  local word = vim.fn.expand '<cword>'
+
+  -- d.code lives in d.code (Neovim 0.10+) or d.user_data.lsp.code (older builds).
+  local function diag_code(d)
+    return d.code or (d.user_data and d.user_data.lsp and d.user_data.lsp.code)
+  end
+
+  -- Request code actions from all attached clients synchronously.
+  local params = vim.lsp.util.make_range_params(0, ltex_clients[1].offset_encoding)
+  params.context = {
+    triggerKind = 1,
+    diagnostics = vim.tbl_map(function(d)
+      return {
+        range    = { start = { line = d.lnum, character = d.col },
+                     ['end'] = { line = d.end_lnum, character = d.end_col } },
+        severity = d.severity,
+        code     = diag_code(d),
+        source   = d.source,
+        message  = d.message,
+      }
+    end, vim.diagnostic.get(bufnr, { lnum = lnum })),
+  }
+
+  local results = vim.lsp.buf_request_sync(bufnr, 'textDocument/codeAction', params, 3000)
+  local items = {}
+
+  for client_id, result in pairs(results or {}) do
+    for _, action in ipairs(result.result or {}) do
+      table.insert(items, { label = action.title, kind = 'lsp', client_id = client_id, action = action })
+    end
+  end
+
+  -- ltex magic comment options (inserted above the current line).
+  local ins = lnum  -- nvim_buf_set_lines uses 0-indexed insert-before
+  table.insert(items, {
+    label = '⟨ltex⟩ Add "' .. word .. '" to inline dictionary',
+    kind  = 'magic',
+    fn    = function()
+      vim.api.nvim_buf_set_lines(bufnr, ins, ins, false,
+        { '<!-- ltex: dictionary=[' .. word .. '] -->' })
+    end,
+  })
+
+  if #items == 0 then
+    vim.notify('No code actions available', vim.log.levels.INFO)
+    return
+  end
+
+  vim.ui.select(items, {
+    prompt      = 'Code action:',
+    format_item = function(item) return item.label end,
+  }, function(item)
+    if not item then return end
+    if item.kind == 'magic' then
+      item.fn()
+      return
+    end
+    -- Execute the LSP action.
+    local client = vim.lsp.get_client_by_id(item.client_id)
+    if not client then return end
+    local action = item.action
+    -- Resolve if the action has neither edit nor command yet.
+    if not action.edit and action.command == nil then
+      client.request('codeAction/resolve', action, function(err, resolved)
+        if err then return end
+        if resolved.edit then
+          vim.lsp.util.apply_workspace_edit(resolved.edit, client.offset_encoding)
+        end
+        if resolved.command then
+          client.request('workspace/executeCommand', resolved.command, function() end, bufnr)
+        end
+      end, bufnr)
+    else
+      if action.edit then
+        vim.lsp.util.apply_workspace_edit(action.edit, client.offset_encoding)
+      end
+      if action.command then
+        local cmd = type(action.command) == 'table' and action.command or action
+        client.request('workspace/executeCommand', cmd, function() end, bufnr)
+      end
+    end
+  end)
+end
+
 -- open code actions with ctrl-. in normal mode
-nmap('<C-.>', '<cmd>lua vim.lsp.buf.code_action()<cr>')
+nmap('<C-.>', code_action)
 
 -- move in command line
 cmap('<C-a>', '<Home>')
@@ -295,7 +391,7 @@ wk.add({
     { "<leader>htt", vim.treesitter.inspect_tree, desc = "show [t]ree" },
     { "<leader>i", group = "[i]mage" },
     { "<leader>l", group = "[l]anguage/lsp" },
-    { "<leader>la", vim.lsp.buf.code_action, desc = "code [a]ction" },
+    { "<leader>la", code_action, desc = "code [a]ction" },
     { "<leader>ld", group = "[d]iagnostics" },
     { "<leader>ldd", function() vim.diagnostic.enable(false) end, desc = "[d]isable" },
     { "<leader>lde", vim.diagnostic.enable, desc = "[e]nable" },

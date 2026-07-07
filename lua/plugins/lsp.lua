@@ -388,7 +388,7 @@ return {
           require('ltex_extra').setup {
             load_langs = { 'en', 'fr' },
             init_check = true,
-            path = vim.fn.stdpath 'config' .. '/dict',
+            path = '.vscode/ltex',
           }
         end,
       })
