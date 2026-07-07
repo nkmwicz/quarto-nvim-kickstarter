@@ -1,58 +1,11 @@
 return {
   {
-    'vigoux/ltex-ls.nvim',
-    -- No requires = 'neovim/nvim-lspconfig' as advised by plugin author
-    config = function()
-      -- COPY ltex-ls tar file into usr/local/bin/ltex-ls
-      -- Set JAVA_HOME explicitly within Neovim
-      vim.env.JAVA_HOME = '/usr/local/bin/ltex-ls/jdk-11.0.12+7'
-      vim.env.PATH = vim.env.PATH .. ':' .. vim.env.JAVA_HOME .. '/bin'
-
-      require('ltex-ls').setup {
-        use_spellfile = false,
-        window_border = 'single',
-        filetypes = { 'latex', 'tex', 'bib', 'markdown', 'gitcommit', 'text', 'quarto' }, -- Add relevant filetypes
-        settings = {
-          ltex = {
-            enabled = { 'latex', 'tex', 'bib', 'markdown', 'quarto' },
-            language = "auto",
-            diagnosticSeverity = 'information',
-            sentenceCacheSize = 2000,
-            additionalRules = {
-              enablePickyRules = true,
-              languageModel = 'en',
-              motherTongue = 'en', -- Set your mother tongue
-            },
-            disabledRules = {
-              en = { 'EN_QUOTES' },
-              fr = { 'APOS_TYP', 'FRENCH_WHITESPACE' }, -- Disable specific rules
-            },
-            dictionary = (function()
-              local files = {}
-              for _, file in ipairs(vim.api.nvim_get_runtime_file('dict/*', true)) do
-                local lang = vim.fn.fnamemodify(file, ':t:r')
-                local fullpath = vim.fs.normalize(file, { absolute = true })
-                files[lang] = { ':' .. fullpath }
-              end
-
-              if files.default then
-                for lang, _ in pairs(files) do
-                  if lang ~= 'default' then
-                    vim.list_extend(files[lang], files.default)
-                  end
-                end
-                files.default = nil
-              end
-              return files
-            end)(),
-            hiddenFalsePositives = {
-              en = { '{"rule": "", "sentence": "\\\\\\\\^\\\\w+"}', '{"rule": "", "sentence": "Thisproject"}' }, -- Ignore caret followed by a word character
-              fr = { '{"rule":"MORFOLOGIK_RULE_FR", "sentence":"\\\\^\\\\w"}' },
-            },
-          },
-        },
-      }
-    end,
+    -- Persists ltex-ls code actions (add to dictionary, disable rule, hide false
+    -- positive) to disk so they survive restarts. Stores additions in dict/ alongside
+    -- the existing word files (en.dictionary, fr.dictionary — different names, no clash).
+    'barreiroleo/ltex_extra.nvim',
+    ft = { 'latex', 'tex', 'bib', 'markdown', 'gitcommit', 'text', 'quarto' },
+    dependencies = { 'neovim/nvim-lspconfig' },
   },
   {
 
@@ -112,6 +65,10 @@ return {
       { 'folke/neoconf.nvim', opts = {}, enabled = false },
     },
     config = function()
+      -- ltex-ls ships its own JDK; point JAVA_HOME at it before any server starts.
+      vim.env.JAVA_HOME = '/usr/local/bin/ltex-ls/jdk-11.0.12+7'
+      vim.env.PATH = vim.env.PATH .. ':' .. vim.env.JAVA_HOME .. '/bin'
+
       local lspconfig = require 'lspconfig'
       local util = require 'lspconfig.util'
 
@@ -385,6 +342,57 @@ return {
       --   capabilities = capabilities,
       --   flags = lsp_flags,
       -- }
+
+      vim.lsp.config('ltex', {
+        capabilities = capabilities,
+        flags = lsp_flags,
+        filetypes = { 'latex', 'tex', 'bib', 'markdown', 'gitcommit', 'text', 'quarto' },
+        settings = {
+          ltex = {
+            enabled = { 'latex', 'tex', 'bib', 'markdown', 'quarto' },
+            language = 'auto',
+            diagnosticSeverity = 'information',
+            sentenceCacheSize = 2000,
+            additionalRules = {
+              enablePickyRules = true,
+              motherTongue = 'en',
+            },
+            disabledRules = {
+              en = { 'EN_QUOTES' },
+              fr = { 'APOS_TYP', 'FRENCH_WHITESPACE' },
+            },
+            dictionary = (function()
+              local files = {}
+              for _, file in ipairs(vim.api.nvim_get_runtime_file('dict/*', true)) do
+                local lang = vim.fn.fnamemodify(file, ':t:r')
+                local fullpath = vim.fs.normalize(file, { absolute = true })
+                files[lang] = { ':' .. fullpath }
+              end
+              if files.default then
+                for lang, _ in pairs(files) do
+                  if lang ~= 'default' then
+                    vim.list_extend(files[lang], files.default)
+                  end
+                end
+                files.default = nil
+              end
+              return files
+            end)(),
+            hiddenFalsePositives = {
+              en = { '{"rule": "", "sentence": "\\\\\\\\^\\\\w+"}', '{"rule": "", "sentence": "Thisproject"}' },
+              fr = { '{"rule":"MORFOLOGIK_RULE_FR", "sentence":"\\\\^\\\\w"}' },
+            },
+          },
+        },
+        on_attach = function(_, _)
+          require('ltex_extra').setup {
+            load_langs = { 'en', 'fr' },
+            init_check = true,
+            path = vim.fn.stdpath 'config' .. '/dict',
+          }
+        end,
+      })
+      vim.lsp.enable 'ltex'
 
       -- See https://github.com/neovim/neovim/issues/23291
       -- disable lsp watcher.
