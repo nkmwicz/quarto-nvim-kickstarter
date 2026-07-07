@@ -384,11 +384,19 @@ return {
             },
           },
         },
-        on_attach = function(_, _)
+        on_attach = function(_, bufnr)
+          -- Resolve project root (walk up from the buffer for _quarto.yml or .git),
+          -- then store ltex-extra files in <root>/.vscode/ltex so they are
+          -- per-project and tracked in the project's own git repo, not here.
+          local markers = { '_quarto.yml', '_quarto.yaml', '.git' }
+          local buf_path = vim.api.nvim_buf_get_name(bufnr)
+          local root = vim.fs.dirname(
+            vim.fs.find(markers, { upward = true, path = buf_path })[1]
+          ) or vim.fn.getcwd()
           require('ltex_extra').setup {
             load_langs = { 'en', 'fr' },
             init_check = true,
-            path = '.vscode/ltex',
+            path = root .. '/.vscode/ltex',
           }
         end,
       })

@@ -102,7 +102,7 @@ local function code_action()
           vim.lsp.util.apply_workspace_edit(resolved.edit, client.offset_encoding)
         end
         if resolved.command then
-          client.request('workspace/executeCommand', resolved.command, function() end, bufnr)
+          client:exec_cmd(resolved.command, { bufnr = bufnr })
         end
       end, bufnr)
     else
@@ -111,7 +111,7 @@ local function code_action()
       end
       if action.command then
         local cmd = type(action.command) == 'table' and action.command or action
-        client.request('workspace/executeCommand', cmd, function() end, bufnr)
+        client:exec_cmd(cmd, { bufnr = bufnr })
       end
     end
   end)
