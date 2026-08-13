@@ -121,7 +121,7 @@ return {
           },
         },
         sources = {
-          -- { name = 'otter' }, -- for code chunks in quarto
+          { name = 'otter' }, -- for code chunks in quarto
           { name = 'path' },
           { name = 'nvim_lsp_signature_help' },
           { name = 'nvim_lsp' },

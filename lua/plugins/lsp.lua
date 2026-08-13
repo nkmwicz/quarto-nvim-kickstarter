@@ -185,7 +185,10 @@ return {
       vim.lsp.config('marksman', {
         capabilities = capabilities,
         filetypes = { 'markdown', 'quarto' },
-        root_dir = util.root_pattern('.git', '.marksman.toml', '_quarto.yml'),
+        root_dir = function(bufnr, on_dir)
+          local fname = vim.api.nvim_buf_get_name(bufnr)
+          on_dir(util.root_pattern('.git', '.marksman.toml', '_quarto.yml')(fname))
+        end,
       })
       vim.lsp.enable('marksman')
 
@@ -424,9 +427,10 @@ return {
             },
           },
         },
-        root_dir = function(bufnr)
+        root_dir = function(bufnr, on_dir)
           local fname = vim.api.nvim_buf_get_name(bufnr)
-          return util.root_pattern('.git', 'setup.py', 'setup.cfg', 'pyproject.toml', 'requirements.txt')(fname) or util.path.dirname(fname)
+          local root = util.root_pattern('.git', 'setup.py', 'setup.cfg', 'pyproject.toml', 'requirements.txt')(fname) or util.path.dirname(fname)
+          on_dir(root)
         end,
       })
       vim.lsp.enable('pyright')
