@@ -885,22 +885,9 @@ local function cmd_report()
 
   local by_status, no_status = {}, {}
   for _, fpath in ipairs(files) do
-    local fname    = vim.fn.fnamemodify(fpath, ':t')
-    local status   = nil
-    local in_meta, meta_end = false, ''
-    for i, line in ipairs(vim.fn.readfile(fpath, '', 30)) do
-      if i == 1 and line == '---' then
-        in_meta, meta_end = true, '^%-%-%-'
-      elseif i == 1 and line:match '^<!%-%-' then
-        in_meta, meta_end = true, '%-%->'
-      elseif in_meta and line:match(meta_end) then
-        break
-      elseif in_meta then
-        local s = line:match '^status:%s*(.-)%s*$'
-        if s and s ~= '' then status = s end
-      end
-    end
-    if status then
+    local fname  = vim.fn.fnamemodify(fpath, ':t')
+    local status = parse_meta(fpath).status
+    if status and status ~= '' then
       by_status[status] = by_status[status] or {}
       table.insert(by_status[status], fname)
     else
