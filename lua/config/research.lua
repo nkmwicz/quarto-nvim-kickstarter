@@ -118,6 +118,132 @@ local function cmd_headings()
   }):find()
 end
 
+-- ── ri: insert a link to a research snippet at cursor ────────────────────────
+
+local function cmd_insert_link()
+  local rp = require_research()
+  if not rp then return end
+
+  local pickers      = require 'telescope.pickers'
+  local finders      = require 'telescope.finders'
+  local conf         = require('telescope.config').values
+  local actions      = require 'telescope.actions'
+  local action_state = require 'telescope.actions.state'
+
+  local results = {}
+  for _, fpath in ipairs(vim.fn.globpath(rp, '*.md', false, true)) do
+    local fname = vim.fn.fnamemodify(fpath, ':t')
+    for lnum, line in ipairs(vim.fn.readfile(fpath)) do
+      if line:match '^## ' then
+        local heading = line:gsub('^##%s*', '')
+        results[#results + 1] = {
+          display  = fname .. '  ›  ' .. heading,
+          ordinal  = fname .. ' ' .. heading,
+          filename = fpath,
+          fname    = fname,
+          heading  = heading,
+          lnum     = lnum,
+        }
+      end
+    end
+  end
+
+  if #results == 0 then
+    vim.notify('[research] no snippet headings found', vim.log.levels.WARN)
+    return
+  end
+
+  pickers.new({}, {
+    prompt_title = ' Insert Research Link ',
+    finder = finders.new_table {
+      results     = results,
+      entry_maker = function(e) return e end,
+    },
+    sorter    = conf.generic_sorter {},
+    previewer = conf.grep_previewer {},
+    attach_mappings = function(prompt_bufnr)
+      actions.select_default:replace(function()
+        local sel = action_state.get_selected_entry()
+        if not sel then return end
+        actions.close(prompt_bufnr)
+        local marker = string.format('<!-- research: %s » %s -->', sel.fname, sel.heading)
+        local buf = vim.api.nvim_get_current_buf()
+        local row = vim.api.nvim_win_get_cursor(0)[1]
+        vim.api.nvim_buf_set_lines(buf, row, row, false, { marker })
+        vim.api.nvim_win_set_cursor(0, { row + 1, 0 })
+      end)
+      return true
+    end,
+  }):find()
+end
+
+-- ── ru: used in — find sections that link to the current research file ──────
+
+local function cmd_used_in()
+  local fpath = vim.fn.expand '%:p'
+  if fpath == '' then
+    vim.notify('[research] no file open', vim.log.levels.WARN)
+    return
+  end
+  local fname        = vim.fn.fnamemodify(fpath, ':t')
+  local rp            = research_path()
+  local project_dir   = vim.fn.fnamemodify(rp, ':h')
+  local sections_dir  = project_dir .. '/sections'
+  if vim.fn.isdirectory(sections_dir) ~= 1 then
+    vim.notify('[research] no sections/ directory found near ' .. fname, vim.log.levels.WARN)
+    return
+  end
+
+  local hits = vim.fn.systemlist {
+    'grep', '-rn', '-F', '--include=*.qmd', '--include=*.md',
+    'research: ' .. fname, sections_dir,
+  }
+  if #hits == 0 then
+    vim.notify('[research] no sections reference ' .. fname, vim.log.levels.WARN)
+    return
+  end
+
+  local pickers      = require 'telescope.pickers'
+  local finders      = require 'telescope.finders'
+  local conf         = require('telescope.config').values
+  local actions      = require 'telescope.actions'
+  local action_state = require 'telescope.actions.state'
+
+  local results = {}
+  for _, h in ipairs(hits) do
+    local path, lnum, text = h:match '^(.-):(%d+):(.*)$'
+    if path then
+      results[#results + 1] = {
+        display  = vim.fn.fnamemodify(path, ':t') .. ':' .. lnum .. '  ' .. text:gsub('^%s+', ''),
+        ordinal  = path .. ' ' .. text,
+        filename = path,
+        lnum     = tonumber(lnum),
+      }
+    end
+  end
+
+  pickers.new({}, {
+    prompt_title = ' Used in (' .. fname .. ') ',
+    finder = finders.new_table {
+      results     = results,
+      entry_maker = function(e) return e end,
+    },
+    sorter    = conf.generic_sorter {},
+    previewer = conf.grep_previewer {},
+    attach_mappings = function(prompt_bufnr)
+      actions.select_default:replace(function()
+        local sel = action_state.get_selected_entry()
+        if not sel then return end
+        actions.close(prompt_bufnr)
+        vim.cmd('edit ' .. vim.fn.fnameescape(sel.filename))
+        vim.api.nvim_win_set_cursor(0, { sel.lnum, 0 })
+        vim.cmd 'normal! zz'
+      end)
+      return true
+    end,
+  }):find()
+end
+
 -- ── ro: open or create (telescope picker) ────────────────────────────────────
 
 local function cmd_open()
@@ -198,11 +324,13 @@ function M.setup()
   local wk = require 'which-key'
   wk.add {
     { '<leader>r',  group = '[r]esearch' },
-    { '<leader>rf', cmd_find,     desc = '[f]ind in research (grep)' },
-    { '<leader>rh', cmd_headings, desc = '[h]eadings / snippet picker' },
-    { '<leader>rn', cmd_new,      desc = '[n]ew research note' },
-    { '<leader>ro', cmd_open,     desc = '[o]pen research file' },
-    { '<leader>rs', cmd_scratch,  desc = '[s]cratch' },
+    { '<leader>rf', cmd_find,        desc = '[f]ind in research (grep)' },
+    { '<leader>rh', cmd_headings,    desc = '[h]eadings / snippet picker' },
+    { '<leader>ri', cmd_insert_link, desc = '[i]nsert link to snippet' },
+    { '<leader>rn', cmd_new,         desc = '[n]ew research note' },
+    { '<leader>ro', cmd_open,        desc = '[o]pen research file' },
+    { '<leader>rs', cmd_scratch,     desc = '[s]cratch' },
+    { '<leader>ru', cmd_used_in,     desc = '[u]sed in (backlinks)' },
   }
 end
 
