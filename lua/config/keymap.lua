@@ -397,6 +397,7 @@ wk.add({
     { "<leader>lde", vim.diagnostic.enable, desc = "[e]nable" },
     { "<leader>le", vim.diagnostic.open_float, desc = "diagnostics (show hover [e]rror)" },
     { "<leader>lg", ":Neogen<cr>", desc = "neo[g]en docstring" },
+    { "<leader>m", group = "[m]olten" },
     { "<leader>o", group = "[o]tter & c[o]de" },
     { "<leader>oa", require'otter'.activate, desc = "otter [a]ctivate" },
     { "<leader>ob", insert_bash_chunk, desc = "[b]ash code chunk" },

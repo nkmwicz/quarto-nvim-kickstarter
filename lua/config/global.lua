@@ -57,6 +57,13 @@ else
   end)
 end
 
+-- Jupyter needs this directory to write kernel connection files; on a fresh
+-- machine it doesn't exist yet and molten's kernel launch fails silently for it.
+local jupyter_runtime_dir = vim.fn.expand '~/.local/share/jupyter/runtime'
+if vim.fn.isdirectory(jupyter_runtime_dir) == 0 then
+  vim.fn.mkdir(jupyter_runtime_dir, 'p', '0700')
+end
+
 -- more opinionated
 vim.opt.number = true -- show linenumbers
 vim.opt.mouse = 'a' -- enable mouse
