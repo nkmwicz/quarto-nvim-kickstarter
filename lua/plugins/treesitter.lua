@@ -13,7 +13,6 @@ return {
       require('nvim-treesitter.configs').setup {
         auto_install = true,
         ensure_installed = {
-          'r',
           'python',
           'markdown',
           'markdown_inline',

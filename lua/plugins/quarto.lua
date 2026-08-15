@@ -28,8 +28,8 @@ return {
     },
   },
 
-  { -- send code from python/r/qmd documets to a terminal or REPL
-    -- like ipython, R, bash
+  { -- send code from python/qmd documents to a terminal or REPL
+    -- like ipython, bash
     'jpalardy/vim-slime',
     dev = false,
     init = function()
