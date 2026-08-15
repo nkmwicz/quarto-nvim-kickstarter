@@ -31,6 +31,7 @@ return {
           'mermaid',
           'norg',
           'typescript',
+          'tsx',
           'bibtex',
         },
         highlight = {
@@ -115,5 +116,11 @@ return {
 
       M.nvim_create_augroups(autoCommands)
     end,
+  },
+
+  { -- auto-close and auto-rename matching JSX/HTML tags
+    'windwp/nvim-ts-autotag',
+    ft = { 'html', 'javascript', 'javascriptreact', 'typescript', 'typescriptreact', 'xml', 'markdown' },
+    opts = {},
   },
 }

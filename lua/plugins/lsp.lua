@@ -26,6 +26,27 @@ return {
   },
 
   {
+    -- replaces ts_ls: faster, richer refactors, and inlay hints out of the box.
+    -- needs the `typescript` npm package resolvable (global install or per-project node_modules).
+    'pmizio/typescript-tools.nvim',
+    ft = { 'javascript', 'javascriptreact', 'typescript', 'typescriptreact' },
+    dependencies = { 'neovim/nvim-lspconfig', 'nvim-lua/plenary.nvim' },
+    opts = {
+      settings = {
+        tsserver_file_preferences = {
+          includeInlayParameterNameHints = 'all',
+          includeInlayParameterNameHintsWhenArgumentMatchesName = true,
+          includeInlayFunctionParameterTypeHints = true,
+          includeInlayVariableTypeHints = true,
+          includeInlayPropertyDeclarationTypeHints = true,
+          includeInlayFunctionLikeReturnTypeHints = true,
+          includeInlayEnumMemberValueHints = true,
+        },
+      },
+    },
+  },
+
+  {
     'neovim/nvim-lspconfig',
     dependencies = {
       { 'williamboman/mason.nvim' },
@@ -88,7 +109,6 @@ return {
           'tailwindcss',
           'emmet_ls',
           'ltex',
-          'ts_ls',
         },
         automatic_installation = true,
         automatic_enable = true,
@@ -163,6 +183,14 @@ return {
           map('<leader>lf', vim.lsp.buf.format, '[l]sp [f]ormat')
           vmap('<leader>lf', vim.lsp.buf.format, '[l]sp [f]ormat')
           map('<leader>lq', vim.diagnostic.setqflist, '[l]sp diagnostic [q]uickfix')
+
+          if client:supports_method 'textDocument/inlayHint' then
+            vim.lsp.inlay_hint.enable(true, { bufnr = event.buf })
+            map('<leader>lh', function()
+              local enabled = vim.lsp.inlay_hint.is_enabled { bufnr = event.buf }
+              vim.lsp.inlay_hint.enable(not enabled, { bufnr = event.buf })
+            end, '[l]sp toggle inlay [h]ints')
+          end
         end,
       })
 
@@ -235,13 +263,6 @@ return {
         flags = lsp_flags,
       })
       vim.lsp.enable('dotls')
-
-      vim.lsp.config('ts_ls', {
-        capabilities = capabilities,
-        flags = lsp_flags,
-        filetypes = { 'js', 'javascript', 'typescript', 'ojs', 'typescriptreact', 'ts', 'tsx', 'jsx', 'javascriptreact' },
-      })
-      vim.lsp.enable('ts_ls')
 
       local function get_quarto_resource_path()
         local function strsplit(s, delimiter)
