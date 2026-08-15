@@ -5,12 +5,24 @@ return {
     'quarto-dev/quarto-nvim',
     ft = { 'quarto' },
     dev = false,
-    opts = {},
+    opts = {
+      codeRunner = {
+        enabled = true,
+        default_method = 'molten',
+      },
+    },
     dependencies = {
       -- for language features in code cells
       -- configured in lua/plugins/lsp.lua and
       -- added as a nvim-cmp source in lua/plugins/completion.lua
       'jmbuhr/otter.nvim',
+    },
+    keys = {
+      { '<leader>mc', function() require('quarto.runner').run_cell() end, desc = 'molten run [c]ell (cursor)' },
+      { '<leader>ma', function() require('quarto.runner').run_above() end, desc = 'molten run [a]bove' },
+      { '<leader>mb', function() require('quarto.runner').run_below() end, desc = 'molten run [b]elow' },
+      { '<leader>mA', function() require('quarto.runner').run_all() end, desc = 'molten run [A]ll' },
+      { '<leader>ml', function() require('quarto.runner').run_line() end, desc = 'molten run [l]ine' },
     },
   },
 
