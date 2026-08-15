@@ -1,3 +1,30 @@
+-- TypeScript 7's native compiler restructured the npm package (no more
+-- tsserver.js), so it needs nvim-lspconfig's `tsc` server (talks to the
+-- native `tsc --lsp --stdio`) instead of typescript-tools.nvim's classic
+-- tsserver.js protocol. Detect which one a project is on by reading the
+-- version out of its local node_modules/typescript, so exactly one of the
+-- two servers attaches per buffer.
+local function get_local_ts_major(bufnr)
+  local root = vim.fs.root(bufnr, { 'package-lock.json', 'yarn.lock', 'pnpm-lock.yaml', 'bun.lockb', 'bun.lock', '.git' })
+  if not root then
+    return nil
+  end
+  local ok, lines = pcall(vim.fn.readfile, root .. '/node_modules/typescript/package.json')
+  if not ok or not lines or #lines == 0 then
+    return nil
+  end
+  local decoded_ok, decoded = pcall(vim.json.decode, table.concat(lines, '\n'))
+  if not decoded_ok or not decoded or not decoded.version then
+    return nil
+  end
+  return tonumber(decoded.version:match '^(%d+)')
+end
+
+local function is_ts7_project(bufnr)
+  local major = get_local_ts_major(bufnr)
+  return major ~= nil and major >= 7
+end
+
 return {
   {
     -- Persists ltex-ls code actions (add to dictionary, disable rule, hide false
@@ -32,6 +59,13 @@ return {
     ft = { 'javascript', 'javascriptreact', 'typescript', 'typescriptreact' },
     dependencies = { 'neovim/nvim-lspconfig', 'nvim-lua/plenary.nvim' },
     opts = {
+      -- defer to lspconfig's `tsc` server on TS7 projects (see is_ts7_project above)
+      root_dir = function(bufnr, on_dir)
+        if is_ts7_project(bufnr) then
+          return
+        end
+        on_dir(require('typescript-tools.utils').get_root_dir(bufnr))
+      end,
       settings = {
         tsserver_file_preferences = {
           includeInlayParameterNameHints = 'all',
@@ -263,6 +297,20 @@ return {
         flags = lsp_flags,
       })
       vim.lsp.enable('dotls')
+
+      -- native TS7 LSP (`tsc --lsp --stdio`); only attaches when the project's
+      -- local TypeScript is >=7 (see is_ts7_project), otherwise typescript-tools.nvim handles it
+      vim.lsp.config('tsc', {
+        capabilities = capabilities,
+        root_dir = function(bufnr, on_dir)
+          if not is_ts7_project(bufnr) then
+            return
+          end
+          local root = vim.fs.root(bufnr, { 'package-lock.json', 'yarn.lock', 'pnpm-lock.yaml', 'bun.lockb', 'bun.lock', '.git' })
+          on_dir(root or vim.fn.getcwd())
+        end,
+      })
+      vim.lsp.enable('tsc')
 
       local function get_quarto_resource_path()
         local function strsplit(s, delimiter)
