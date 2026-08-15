@@ -113,7 +113,7 @@ return {
 
   {
     'benlubas/molten-nvim',
-    enabled = false,
+    enabled = true,
     build = ':UpdateRemotePlugins',
     init = function()
       vim.g.molten_image_provider = 'image.nvim'

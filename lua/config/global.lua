@@ -38,6 +38,25 @@ vim.api.nvim_set_hl(0, 'TermCursor', { fg = '#A6E3A1', bg = '#A6E3A1' })
 -- disable fill chars (the ~ after the buffer)
 vim.o.fillchars = 'eob: '
 
+-- Python provider for the Neovim Python host (used by molten-nvim, etc.)
+-- Dedicated micromamba env, separate from any per-project env: `micromamba create -n nvim-host -c conda-forge python pynvim jupyter_client -y`
+local nvim_host_python = vim.fn.expand '~/micromamba/envs/nvim-host/bin/python'
+if vim.fn.executable(nvim_host_python) == 1 then
+  vim.g.python3_host_prog = nvim_host_python
+else
+  vim.g.loaded_python3_provider = 0
+  local setup_cmd = 'micromamba create -n nvim-host -c conda-forge python pynvim jupyter_client -y'
+  vim.fn.setreg('+', setup_cmd)
+  vim.schedule(function()
+    vim.notify(
+      'nvim-host micromamba env not found — Python host disabled.\n'
+        .. 'Setup command copied to clipboard, paste into a terminal:\n'
+        .. setup_cmd,
+      vim.log.levels.WARN
+    )
+  end)
+end
+
 -- more opinionated
 vim.opt.number = true -- show linenumbers
 vim.opt.mouse = 'a' -- enable mouse
