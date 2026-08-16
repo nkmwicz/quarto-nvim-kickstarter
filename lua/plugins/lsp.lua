@@ -141,7 +141,6 @@ return {
           'dotls',
           'marksman',
           'tailwindcss',
-          'emmet_ls',
           'ltex',
           'ruff',
         },
