@@ -431,8 +431,12 @@ wk.add({
     -- Aliases for native zg/zw (mark word under cursor good/wrong), just for
     -- discoverability in the [z]pell group -- zg/zw stay mapped natively too,
     -- since they don't collide with anything (unlike zl did with fold cmds).
-    { "<leader>zg", "zg", desc = "mark word [g]ood" },
-    { "<leader>zw", "zw", desc = "mark word [w]rong" },
+    -- Lowercase = project-scoped (spellfile entry 1), uppercase = global,
+    -- config-wide dictionary in dict/ (spellfile entry 2, via count prefix).
+    { "<leader>zg", "zg", desc = "mark word [g]ood (project)" },
+    { "<leader>zw", "zw", desc = "mark word [w]rong (project)" },
+    { "<leader>zG", "2zg", desc = "mark word [G]ood (global)" },
+    { "<leader>zW", "2zw", desc = "mark word [W]rong (global)" },
   }
 }, { mode = 'n'})
 
