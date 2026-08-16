@@ -25,7 +25,7 @@ All plugins live under `lua/plugins/` and are auto-discovered by lazy.nvim:
 
 | File | Purpose |
 |---|---|
-| `lsp.lua` | Mason + nvim-lspconfig + otter.nvim + ltex-ls. All LSP server configs use `vim.lsp.config(name, ...)` / `vim.lsp.enable(name)` pattern (not the legacy `.setup{}` form). |
+| `lsp.lua` | Mason + nvim-lspconfig + otter.nvim + harper_ls (grammar/prose checker; ltex-ls kept installed but disabled — see LSP notes). All LSP server configs use `vim.lsp.config(name, ...)` / `vim.lsp.enable(name)` pattern (not the legacy `.setup{}` form). |
 | `quarto.lua` | quarto-nvim, jupytext (ipynb→qmd), vim-slime (REPL), img-clip, nabla (math preview) |
 | `completion.lua` | nvim-cmp with many sources, GitHub Copilot (auto-trigger), CopilotChat |
 | `editing.lua` | conform.nvim (format on save), nvim-surround, Comment.nvim, neogen, nvim-prose (word count) |
@@ -56,9 +56,12 @@ Keymaps are in `lua/config/keymap.lua` and loaded by which-key's config function
 ## LSP notes
 
 - LSP servers are managed by Mason; ensure-installed list is in `lua/plugins/lsp.lua`
-- ltex-ls (grammar/spell checker) requires Java at `/usr/local/bin/ltex-ls/jdk-11.0.12+7` — set in the plugin config
+- Grammar/prose checking is `harper_ls` (native Rust binary, English-only, ~150MB idling), not `ltex-ls`. `ltex-ls` requires Java at `/usr/local/bin/ltex-ls/jdk-11.0.12+7` and costs ~1.2GB RSS just idling — kept installed with its config commented out in `lsp.lua` for a one-line revert (e.g. if harper's handling of embedded French text ever becomes a problem), along with `ltex_extra.nvim` (dormant, gated on ltex being attached). `harper_ls`'s own `SpellCheck` linter is disabled since it's English-only and can't tell French words from typos; spelling is handled by native Neovim spellcheck instead (see below). `isolateEnglish` was tried and rejected — genuinely experimental, it both suppressed a real grammar suggestion and introduced a false positive on a French quote. `harper_ls` supports inline `<!-- harper:ignore -->` comments to skip a line, and a per-project `.harper-dictionary.txt` (auto-created at the project root) for recurring proper nouns.
+- Spellcheck is on by default for Quarto buffers (`ftplugin/quarto.lua`), `spelllang=en,fr`. `zg` additions go to `<project root>/.spell/en.utf-8.add` (root = nearest `_quarto.yml`/`.git`), not a config-wide file, so one manuscript's proper nouns don't bleed into another's. Keymaps are `<leader>z?` (toggle) / `<leader>zl` (Telescope spelling suggestions) — moved off bare `z` since it collides with Vim's native fold commands (`zR`, `zM`, etc.).
 - marksman needs `~/.config/marksman/config.toml` with `[core] markdown.file_extensions = ["md", "markdown", "qmd"]` to work on `.qmd` files
-- Custom dictionaries for ltex live in `dict/en` and `dict/fr`
+- `dict/en` is now `harper_ls`'s `userDictPath` (previously ltex's dictionary source; both `dict/en` and `dict/fr` were actually empty placeholders, so nothing was lost in the swap). `dict/fr` is currently unused.
+- `r_language_server` is explicitly excluded from `automatic_installation`/`automatic_enable` in `lsp.lua`. R is not used in this workflow (see project overview) — nvim-lspconfig ships a default config for it, so leaving mason-lspconfig's blanket auto-detect behavior unrestricted would silently install and attach it (and leak orphaned R processes) the moment any buffer looked R-flavored.
+- Copilot's LSP process (`completion.lua`) can survive `:q` as an orphan if it's mid-request when Neovim exits — Neovim's own shutdown escalation only ever sends `SIGTERM`, never `SIGKILL`, and a busy/unresponsive process can ignore or delay `SIGTERM`. A `VimLeavePre` autocmd in `completion.lua` force-kills any lingering copilot child directly (`SIGKILL`) as a backstop.
 
 ## Quarto / REPL workflow
 
