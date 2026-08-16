@@ -269,8 +269,6 @@ wk.add({
     { "gf", ":e <cfile><CR>", desc = "edit file" },
     { "gl", "<c-]>", desc = "open help link" },
     { "n", "nzzzv", desc = "center search" },
-    { "z?", ":setlocal spell!<cr>", desc = "toggle [z]pellcheck" },
-    { "zl", ":Telescope spell_suggest<cr>", desc = "[l]ist spelling suggestions" },
 }, { mode = 'n', silent = true })
 
 -- visual mode
@@ -427,6 +425,9 @@ wk.add({
     { "<leader>vt", toggle_light_dark_theme, desc = "[t]oggle light/dark theme" },
     { "<leader>x", group = "e[x]ecute" },
     { "<leader>xx", ":w<cr>:source %<cr>", desc = "[x] source %" },
+    { "<leader>z", group = "[z]pell" },
+    { "<leader>z?", ":setlocal spell!<cr>", desc = "toggle spellcheck" },
+    { "<leader>zl", ":Telescope spell_suggest<cr>", desc = "[l]ist spelling suggestions" },
   }
 }, { mode = 'n'})
 
