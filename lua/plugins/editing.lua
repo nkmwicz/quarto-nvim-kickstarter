@@ -41,7 +41,7 @@ return {
         },
         formatters_by_ft = {
           lua = { 'mystylua' },
-          python = { 'isort', 'black' },
+          python = { 'ruff_organize_imports', 'ruff_fix', 'ruff_format' },
           quarto = { 'injected' },
           javascript = { 'prettierd', 'prettier', stop_after_first = true },
           typescript = { 'prettierd', 'prettier', stop_after_first = true },

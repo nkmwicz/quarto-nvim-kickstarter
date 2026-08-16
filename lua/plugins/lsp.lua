@@ -143,17 +143,17 @@ return {
           'tailwindcss',
           'emmet_ls',
           'ltex',
+          'ruff',
         },
         automatic_installation = true,
         automatic_enable = true,
       }
       require('mason-tool-installer').setup {
         ensure_installed = {
-          'black',
           'stylua',
           'shfmt',
           'tailwindcss',
-          'isort',
+          'ruff',
           'tree-sitter-cli',
           'jupytext',
           'eslint_d',
@@ -504,15 +504,18 @@ return {
       })
       vim.lsp.enable('pyright')
 
-      -- Configure black as a formatter for Python files
-      vim.api.nvim_create_autocmd('BufWritePre', {
-        pattern = { '*.py', '*.qmd' },
-        callback = function()
-          if vim.bo.filetype == 'python' or vim.bo.filetype == 'quarto' then
-            vim.lsp.buf.format { async = false }
-          end
+      -- Linting + import-sorting + formatting for Python, replacing black/isort
+      -- (actual formatting is done by conform's ruff_* formatters, not the LSP,
+      -- so hover/formatting capabilities here are disabled to avoid duplicating pyright/conform)
+      vim.lsp.config('ruff', {
+        capabilities = capabilities,
+        flags = lsp_flags,
+        on_attach = function(client)
+          client.server_capabilities.hoverProvider = false
+          client.server_capabilities.documentFormattingProvider = false
         end,
       })
+      vim.lsp.enable('ruff')
     end,
   },
 }
