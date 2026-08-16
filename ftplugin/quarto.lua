@@ -14,22 +14,18 @@ vim.wo.breakindent = true
 vim.wo.showbreak = '>>> '
 
 -- Native spellcheck, on by default (z? still toggles it off/back on).
--- Two-tier 'spellfile' list: entry 1 (plain zg/<leader>zg) is scoped to the
--- current manuscript's project root (walking up for _quarto.yml/.git, same
--- marker pattern used for per-project state elsewhere in this config), so
--- recurring names/terms for one project don't bleed into another. Entry 2
--- (2zg/<leader>zG) is a config-wide dictionary in dict/, for vocabulary that
--- isn't project-specific (period descriptors like "sixteenth-century",
--- recurring personal terms) -- add once, available everywhere.
+-- 'spellfile' is scoped to the current manuscript's project root (walking up
+-- for _quarto.yml/.git, same marker pattern used for per-project state
+-- elsewhere in this config), so recurring names/terms for one project don't
+-- bleed into another.
 vim.opt_local.spelllang = 'en,fr'
 do
   local markers = { '_quarto.yml', '_quarto.yaml', '.git' }
   local buf_path = vim.api.nvim_buf_get_name(0)
   local root = vim.fs.dirname(vim.fs.find(markers, { upward = true, path = buf_path })[1]) or vim.fn.getcwd()
   local project_spellfile = root .. '/.spell/en.utf-8.add'
-  local global_spellfile = vim.fn.stdpath 'config' .. '/dict/en.utf-8.add'
   vim.fn.mkdir(vim.fs.dirname(project_spellfile), 'p')
-  vim.opt_local.spellfile = project_spellfile .. ',' .. global_spellfile
+  vim.opt_local.spellfile = project_spellfile
 end
 vim.opt_local.spell = true
 
