@@ -52,14 +52,17 @@ local function make_langserver_cmd(bin_name)
 end
 
 return {
-  {
-    -- Persists ltex-ls code actions (add to dictionary, disable rule, hide false
-    -- positive) to disk so they survive restarts. Stores additions in dict/ alongside
-    -- the existing word files (en.dictionary, fr.dictionary — different names, no clash).
-    'barreiroleo/ltex_extra.nvim',
-    ft = { 'latex', 'tex', 'bib', 'markdown', 'gitcommit', 'text', 'quarto' },
-    dependencies = { 'neovim/nvim-lspconfig' },
-  },
+  -- Persists ltex-ls code actions (add to dictionary, disable rule, hide false
+  -- positive) to disk so they survive restarts. Only useful when ltex itself is
+  -- attached (see the ltex/harper_ls swap in lsp.lua) -- it's loaded by filetype
+  -- alone, not gated on ltex being enabled, so left running it'd just be dead
+  -- weight registering commands/keymaps for a server that never attaches.
+  -- Re-enable alongside ltex if it's ever switched back on.
+  -- {
+  --   'barreiroleo/ltex_extra.nvim',
+  --   ft = { 'latex', 'tex', 'bib', 'markdown', 'gitcommit', 'text', 'quarto' },
+  --   dependencies = { 'neovim/nvim-lspconfig' },
+  -- },
   {
 
     -- for lsp features in code cells / embedded code
@@ -167,11 +170,12 @@ return {
           'dotls',
           'marksman',
           'tailwindcss',
-          'ltex',
+          'ltex', -- kept installed but disabled below, in favor of harper_ls
           'ruff',
+          'harper_ls',
         },
         automatic_installation = { exclude = { 'r_language_server' } },
-        automatic_enable = { exclude = { 'r_language_server' } },
+        automatic_enable = { exclude = { 'r_language_server', 'ltex' } },
       }
       require('mason-tool-installer').setup {
         ensure_installed = {
@@ -443,64 +447,107 @@ return {
       --   flags = lsp_flags,
       -- }
 
-      vim.lsp.config('ltex', {
+      -- ltex-ls: JVM-based, ~1.2GB RSS just idling. Swapped for harper_ls below
+      -- (native Rust binary, English-only) since prose here is English with
+      -- occasional French quotes/names, not French prose needing real grammar
+      -- checking. Kept installed + excluded (not uninstalled) from
+      -- automatic_enable below so this is a one-line revert if harper's
+      -- handling of embedded French turns out to be more trouble than it's
+      -- worth -- just uncomment this block and remove 'ltex' from the
+      -- automatic_enable exclude list.
+      -- vim.lsp.config('ltex', {
+      --   capabilities = capabilities,
+      --   flags = lsp_flags,
+      --   filetypes = { 'latex', 'tex', 'bib', 'markdown', 'gitcommit', 'text', 'quarto' },
+      --   settings = {
+      --     ltex = {
+      --       enabled = { 'latex', 'tex', 'bib', 'markdown', 'quarto' },
+      --       language = 'auto',
+      --       diagnosticSeverity = 'information',
+      --       sentenceCacheSize = 2000,
+      --       additionalRules = {
+      --         enablePickyRules = true,
+      --         motherTongue = 'en',
+      --       },
+      --       disabledRules = {
+      --         en = { 'EN_QUOTES' },
+      --         fr = { 'APOS_TYP', 'FRENCH_WHITESPACE' },
+      --       },
+      --       dictionary = (function()
+      --         local files = {}
+      --         for _, file in ipairs(vim.api.nvim_get_runtime_file('dict/*', true)) do
+      --           local lang = vim.fn.fnamemodify(file, ':t:r')
+      --           local fullpath = vim.fs.normalize(file, { absolute = true })
+      --           files[lang] = { ':' .. fullpath }
+      --         end
+      --         if files.default then
+      --           for lang, _ in pairs(files) do
+      --             if lang ~= 'default' then
+      --               vim.list_extend(files[lang], files.default)
+      --             end
+      --           end
+      --           files.default = nil
+      --         end
+      --         return files
+      --       end)(),
+      --       hiddenFalsePositives = {
+      --         en = { '{"rule": "", "sentence": "\\\\\\\\^\\\\w+"}', '{"rule": "", "sentence": "Thisproject"}' },
+      --         fr = { '{"rule":"MORFOLOGIK_RULE_FR", "sentence":"\\\\^\\\\w"}' },
+      --       },
+      --     },
+      --   },
+      --   on_attach = function(_, bufnr)
+      --     -- Resolve project root (walk up from the buffer for _quarto.yml or .git),
+      --     -- then store ltex-extra files in <root>/.vscode/ltex so they are
+      --     -- per-project and tracked in the project's own git repo, not here.
+      --     local markers = { '_quarto.yml', '_quarto.yaml', '.git' }
+      --     local buf_path = vim.api.nvim_buf_get_name(bufnr)
+      --     local root = vim.fs.dirname(
+      --       vim.fs.find(markers, { upward = true, path = buf_path })[1]
+      --     ) or vim.fn.getcwd()
+      --     require('ltex_extra').setup {
+      --       load_langs = { 'en', 'fr' },
+      --       init_check = true,
+      --       path = root .. '/.vscode/ltex',
+      --     }
+      --   end,
+      -- })
+      -- vim.lsp.enable 'ltex'
+
+      vim.lsp.config('harper_ls', {
         capabilities = capabilities,
         flags = lsp_flags,
-        filetypes = { 'latex', 'tex', 'bib', 'markdown', 'gitcommit', 'text', 'quarto' },
+        filetypes = { 'markdown', 'quarto', 'gitcommit', 'tex', 'text' },
+        -- harper-ls's full prose (not comment-only) parser is keyed to the
+        -- "markdown" language id; quarto is a markdown superset, so route it
+        -- the same way or it silently falls back to comment-only parsing.
+        get_language_id = function(_, filetype)
+          if filetype == 'quarto' then
+            return 'markdown'
+          end
+          return filetype
+        end,
         settings = {
-          ltex = {
-            enabled = { 'latex', 'tex', 'bib', 'markdown', 'quarto' },
-            language = 'auto',
-            diagnosticSeverity = 'information',
-            sentenceCacheSize = 2000,
-            additionalRules = {
-              enablePickyRules = true,
-              motherTongue = 'en',
+          ['harper-ls'] = {
+            userDictPath = vim.fn.stdpath 'config' .. '/dict/en',
+            -- Spelling is handled by Neovim's native multi-language spellcheck
+            -- (spelllang=en,fr, see z? in keymap.lua) instead -- Harper's
+            -- SpellCheck is English-only and would flag every French word.
+            -- Grammar/style linters stay on.
+            linters = {
+              SpellCheck = false,
             },
-            disabledRules = {
-              en = { 'EN_QUOTES' },
-              fr = { 'APOS_TYP', 'FRENCH_WHITESPACE' },
-            },
-            dictionary = (function()
-              local files = {}
-              for _, file in ipairs(vim.api.nvim_get_runtime_file('dict/*', true)) do
-                local lang = vim.fn.fnamemodify(file, ':t:r')
-                local fullpath = vim.fs.normalize(file, { absolute = true })
-                files[lang] = { ':' .. fullpath }
-              end
-              if files.default then
-                for lang, _ in pairs(files) do
-                  if lang ~= 'default' then
-                    vim.list_extend(files[lang], files.default)
-                  end
-                end
-                files.default = nil
-              end
-              return files
-            end)(),
-            hiddenFalsePositives = {
-              en = { '{"rule": "", "sentence": "\\\\\\\\^\\\\w+"}', '{"rule": "", "sentence": "Thisproject"}' },
-              fr = { '{"rule":"MORFOLOGIK_RULE_FR", "sentence":"\\\\^\\\\w"}' },
-            },
+            -- isolateEnglish tries to detect and skip non-English spans (e.g.
+            -- French quotes) for ALL linters, not just spelling. Tried it --
+            -- it's genuinely experimental: it suppressed a real English
+            -- grammar suggestion AND introduced a false "unclosed quote" on
+            -- the French line. Left off; use <!-- harper:ignore --> on actual
+            -- French quotes instead, which is fully reliable.
+            isolateEnglish = false,
           },
         },
-        on_attach = function(_, bufnr)
-          -- Resolve project root (walk up from the buffer for _quarto.yml or .git),
-          -- then store ltex-extra files in <root>/.vscode/ltex so they are
-          -- per-project and tracked in the project's own git repo, not here.
-          local markers = { '_quarto.yml', '_quarto.yaml', '.git' }
-          local buf_path = vim.api.nvim_buf_get_name(bufnr)
-          local root = vim.fs.dirname(
-            vim.fs.find(markers, { upward = true, path = buf_path })[1]
-          ) or vim.fn.getcwd()
-          require('ltex_extra').setup {
-            load_langs = { 'en', 'fr' },
-            init_check = true,
-            path = root .. '/.vscode/ltex',
-          }
-        end,
       })
-      vim.lsp.enable 'ltex'
+      vim.lsp.enable 'harper_ls'
 
       -- See https://github.com/neovim/neovim/issues/23291
       -- disable lsp watcher.
