@@ -170,8 +170,8 @@ return {
           'ltex',
           'ruff',
         },
-        automatic_installation = true,
-        automatic_enable = true,
+        automatic_installation = { exclude = { 'r_language_server' } },
+        automatic_enable = { exclude = { 'r_language_server' } },
       }
       require('mason-tool-installer').setup {
         ensure_installed = {
