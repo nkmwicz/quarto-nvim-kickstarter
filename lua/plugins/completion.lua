@@ -180,12 +180,26 @@ return {
           quarto = true,
         },
         server_opts_overrides = {
-          -- Without this, Neovim's VimLeavePre handler never force-kills the
-          -- copilot node process on quit -- if it's mid-request when nvim exits,
-          -- it's silently orphaned instead of terminated.
+          -- Gives the copilot node process 3s to shut down gracefully (SIGTERM)
+          -- before nvim exits, instead of walking away immediately.
           flags = { exit_timeout = 3000 },
         },
       }
+
+      -- Backstop: SIGTERM (above) can be caught/delayed/ignored by the node
+      -- process, so if it's still alive when nvim quits, SIGKILL it directly
+      -- rather than let it survive as an orphan under systemd/init.
+      vim.api.nvim_create_autocmd('VimLeavePre', {
+        callback = function()
+          local nvim_pid = vim.fn.getpid()
+          local ok, children = pcall(vim.fn.systemlist, { 'pgrep', '-P', tostring(nvim_pid), '-f', 'copilot' })
+          if ok then
+            for _, pid in ipairs(children) do
+              pcall(vim.uv.kill, tonumber(pid), 9)
+            end
+          end
+        end,
+      })
     end,
   },
   {
