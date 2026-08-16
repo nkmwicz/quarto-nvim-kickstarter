@@ -428,6 +428,11 @@ wk.add({
     { "<leader>z", group = "[z]pell" },
     { "<leader>z?", ":setlocal spell!<cr>", desc = "toggle spellcheck" },
     { "<leader>zl", ":Telescope spell_suggest<cr>", desc = "[l]ist spelling suggestions" },
+    -- Aliases for native zg/zw (mark word under cursor good/wrong), just for
+    -- discoverability in the [z]pell group -- zg/zw stay mapped natively too,
+    -- since they don't collide with anything (unlike zl did with fold cmds).
+    { "<leader>zg", "zg", desc = "mark word [g]ood" },
+    { "<leader>zw", "zw", desc = "mark word [w]rong" },
   }
 }, { mode = 'n'})
 
