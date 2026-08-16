@@ -25,6 +25,32 @@ local function is_ts7_project(bufnr)
   return major ~= nil and major >= 7
 end
 
+-- vscode-langservers-extracted's npm-generated bin shims (used by html/cssls/
+-- jsonls) compute their own directory from $0 without resolving symlinks.
+-- mason installs each server as a symlink under mason/bin/, so $0 there is
+-- the symlink's own path, not the real package dir -- the shim's relative
+-- "../vscode-langservers-extracted/..." lookup then points at a path that
+-- doesn't exist. Resolve the symlink chain ourselves before spawning to
+-- route around it; mirrors upstream's local-node_modules-first cmd logic.
+local function make_langserver_cmd(bin_name)
+  return function(dispatchers, config)
+    local cmd = bin_name
+    if (config or {}).root_dir then
+      local local_cmd = vim.fs.joinpath(config.root_dir, 'node_modules/.bin', bin_name)
+      if vim.fn.executable(local_cmd) == 1 then
+        cmd = local_cmd
+      end
+    end
+    if cmd == bin_name then
+      local exe = vim.fn.exepath(bin_name)
+      if exe ~= '' then
+        cmd = vim.uv.fs_realpath(exe) or exe
+      end
+    end
+    return vim.lsp.rpc.start({ cmd, '--stdio' }, dispatchers)
+  end
+end
+
 return {
   {
     -- Persists ltex-ls code actions (add to dictionary, disable rule, hide false
@@ -256,12 +282,14 @@ return {
       vim.lsp.config('cssls', {
         capabilities = capabilities,
         flags = lsp_flags,
+        cmd = make_langserver_cmd 'vscode-css-language-server',
       })
       vim.lsp.enable('cssls')
 
       vim.lsp.config('html', {
         capabilities = capabilities,
         flags = lsp_flags,
+        cmd = make_langserver_cmd 'vscode-html-language-server',
       })
       vim.lsp.enable('html')
 
@@ -288,6 +316,7 @@ return {
       vim.lsp.config('jsonls', {
         capabilities = capabilities,
         flags = lsp_flags,
+        cmd = make_langserver_cmd 'vscode-json-language-server',
       })
       vim.lsp.enable('jsonls')
 
