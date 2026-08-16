@@ -13,6 +13,22 @@ vim.wo.linebreak = true
 vim.wo.breakindent = true
 vim.wo.showbreak = '>>> '
 
+-- Native spellcheck, on by default (z? still toggles it off/back on).
+-- 'zg' additions go to a dictionary scoped to the current manuscript's
+-- project root (walking up for _quarto.yml/.git, same marker pattern used
+-- for per-project state elsewhere in this config), not a config-wide file,
+-- so recurring names/terms for one project don't bleed into another.
+vim.opt_local.spelllang = 'en,fr'
+do
+  local markers = { '_quarto.yml', '_quarto.yaml', '.git' }
+  local buf_path = vim.api.nvim_buf_get_name(0)
+  local root = vim.fs.dirname(vim.fs.find(markers, { upward = true, path = buf_path })[1]) or vim.fn.getcwd()
+  local spellfile = root .. '/.spell/en.utf-8.add'
+  vim.fn.mkdir(vim.fs.dirname(spellfile), 'p')
+  vim.opt_local.spellfile = spellfile
+end
+vim.opt_local.spell = true
+
 -- don't run vim ftplugin on top
 vim.api.nvim_buf_set_var(0, 'did_ftplugin', true)
 
