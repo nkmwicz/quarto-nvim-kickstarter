@@ -174,8 +174,8 @@ return {
           'ruff',
           'harper_ls',
         },
-        automatic_installation = { exclude = { 'r_language_server' } },
-        automatic_enable = { exclude = { 'r_language_server', 'ltex' } },
+        automatic_installation = { exclude = { 'r_language_server', 'emmet_ls' } },
+        automatic_enable = { exclude = { 'r_language_server', 'ltex', 'emmet_ls' } },
       }
       require('mason-tool-installer').setup {
         ensure_installed = {
