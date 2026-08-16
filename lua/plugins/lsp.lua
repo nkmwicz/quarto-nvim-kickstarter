@@ -516,7 +516,10 @@ return {
 
       vim.lsp.config('harper_ls', {
         capabilities = capabilities,
-        flags = lsp_flags,
+        -- exit_timeout: same orphan-on-quit issue as Copilot (see below and
+        -- completion.lua) -- Neovim's own escalation only ever sends SIGTERM,
+        -- which harper-ls can still fail to act on in time.
+        flags = vim.tbl_extend('force', lsp_flags, { exit_timeout = 3000 }),
         filetypes = { 'markdown', 'quarto', 'gitcommit', 'tex', 'text' },
         -- harper-ls's full prose (not comment-only) parser is keyed to the
         -- "markdown" language id; quarto is a markdown superset, so route it
@@ -548,6 +551,21 @@ return {
         },
       })
       vim.lsp.enable 'harper_ls'
+
+      -- Backstop: SIGTERM (via exit_timeout above) can still be ignored/delayed,
+      -- so SIGKILL any harper-ls child still alive on quit rather than let it
+      -- survive as an orphan under systemd/init. Same pattern as completion.lua.
+      vim.api.nvim_create_autocmd('VimLeavePre', {
+        callback = function()
+          local nvim_pid = vim.fn.getpid()
+          local ok, children = pcall(vim.fn.systemlist, { 'pgrep', '-P', tostring(nvim_pid), '-f', 'harper-ls' })
+          if ok then
+            for _, pid in ipairs(children) do
+              pcall(vim.uv.kill, tonumber(pid), 9)
+            end
+          end
+        end,
+      })
 
       -- See https://github.com/neovim/neovim/issues/23291
       -- disable lsp watcher.
