@@ -179,6 +179,12 @@ return {
           markdown = true,
           quarto = true,
         },
+        server_opts_overrides = {
+          -- Without this, Neovim's VimLeavePre handler never force-kills the
+          -- copilot node process on quit -- if it's mid-request when nvim exits,
+          -- it's silently orphaned instead of terminated.
+          flags = { exit_timeout = 3000 },
+        },
       }
     end,
   },
