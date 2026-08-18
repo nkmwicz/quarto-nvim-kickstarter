@@ -377,6 +377,7 @@ wk.add({
     { "<leader>gc", ":GitConflictRefresh<cr>", desc = "[c]onflict" },
     { "<leader>gd", group = "[d]iff" },
     { "<leader>gdc", ":DiffviewClose<cr>", desc = "[c]lose" },
+    { "<leader>gdh", ":DiffviewFileHistory %<cr>", desc = "[h]istory (current file)" },
     { "<leader>gdo", ":DiffviewOpen<cr>", desc = "[o]pen" },
     { "<leader>gs", ":Gitsigns<cr>", desc = "git [s]igns" },
     { "<leader>gwc", ":lua require('telescope').extensions.git_worktree.create_git_worktree()<cr>", desc = "worktree create" },
