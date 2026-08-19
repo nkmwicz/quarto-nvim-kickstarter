@@ -50,7 +50,7 @@ return {
         compile = false,             -- enable compiling the colorscheme
         undercurl = true,            -- enable undercurls
         commentStyle = { italic = true },
-        functionStyle = { italic = true, bold = true},
+        functionStyle = { italic = true, bold = true, underline = true },
         keywordStyle = { italic = true },
         statementStyle = { bold = true },
         typeStyle = {},
@@ -58,7 +58,61 @@ return {
         dimInactive = true,         -- dim inactive window `:h hl-NormalNC`
         terminalColors = true,       -- define vim.g.terminal_color_{0,17}
         overrides = function(colors)
-          return {}
+          local theme = colors.theme
+          -- theme.syn.constant is the real orange (surimiOrange/lotusOrange);
+          -- theme.syn.fun is the default function blue, repurposed here for vars.
+          -- Left as direct group overrides (not shared theme.syn.* slots) so
+          -- unrelated things that read those slots (e.g. Directory) are untouched.
+          local orange = theme.syn.constant
+          local blue = theme.syn.fun
+          local func_style = { italic = true, bold = true, underline = true }
+          return {
+            -- functions: declarations, calls, methods, builtins, constructors -> orange, underlined
+            ['Function'] = vim.tbl_extend('force', { fg = orange }, func_style),
+            ['@constructor'] = vim.tbl_extend('force', { fg = orange }, func_style),
+            ['@lsp.typemod.function.readonly'] = vim.tbl_extend('force', { fg = orange }, func_style),
+            -- builtins like range()/list()/dict() default-link to Special (light
+            -- blue) via Neovim, bypassing Function entirely -- pull them back in.
+            -- @function.builtin alone wins priority over @type.builtin in an
+            -- actual call, so range(10) etc. still come out orange below.
+            ['@function.builtin'] = vim.tbl_extend('force', { fg = orange }, func_style),
+
+            -- typings: builtin/primitive types used as annotations (not called)
+            -- -> light gray. Only fires without @function.builtin in the mix,
+            -- so it never competes with the orange builtin-call styling above,
+            -- and it's a separate capture from plain @type, so it doesn't touch
+            -- class declarations/instantiation (still bold+boxed / orange).
+            ['@type.builtin'] = { fg = theme.syn.comment },
+
+            -- variables: plain names, member/property access, `const`-style readonly
+            -- bindings (which kanagawa otherwise links to Constant), LSP-typed
+            -- "variable" tokens (var/let/const in JS-TS, plain assignment in Python),
+            -- and parameters -> blue
+            ['@variable'] = { fg = blue },
+            ['@variable.member'] = { fg = blue },
+            ['@lsp.mod.readonly'] = { fg = blue },
+            ['@lsp.type.variable'] = { fg = blue },
+            ['@variable.parameter'] = { fg = blue },
+            -- class fields/properties: LSP's "property" semantic type falls back
+            -- to Identifier (the Constant yellow) by default, overriding the
+            -- treesitter @variable.member blue above since semantic tokens render
+            -- at higher priority
+            ['@lsp.type.property'] = { fg = blue },
+
+            -- genuine literal constants (ALL_CAPS, enums, etc. -- not `const`
+            -- bindings, which are just vars above) -> the yellow displaced from
+            -- @variable.member, so they no longer collide with function-orange
+            ['Constant'] = { fg = theme.syn.identifier },
+
+            -- classes: bold with a background "block" behind the name.
+            -- Verified directly against the python/typescript grammars: neither
+            -- emits a class-specific capture (nor LSP semantic "class" tokens in
+            -- this setup) -- class names, declared or used, are tagged @type,
+            -- which is also what interfaces/generics/type-aliases use. There's
+            -- no finer-grained hook available, so this styles all of @type.
+            ['Type'] = { fg = theme.syn.type, bg = theme.ui.bg_p2, bold = true },
+            ['@lsp.type.class'] = { fg = theme.syn.type, bg = theme.ui.bg_p2, bold = true },
+          }
         end,
         colors = {
           theme = {
