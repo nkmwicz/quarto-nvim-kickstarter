@@ -112,6 +112,14 @@ return {
             -- no finer-grained hook available, so this styles all of @type.
             ['Type'] = { fg = theme.syn.type, bg = theme.ui.bg_p2, bold = true },
             ['@lsp.type.class'] = { fg = theme.syn.type, bg = theme.ui.bg_p2, bold = true },
+
+            -- markdown/qmd headers: kanagawa links @markup.heading -> Function
+            -- (orange) by default, which drags headers along with our
+            -- Python/JS function-orange override above. Break that link and
+            -- give headers their own color instead. All heading levels
+            -- (@markup.heading.1..6) fall back to this since kanagawa never
+            -- sets the per-level groups.
+            ['@markup.heading'] = { fg = blue, bold = true },
           }
         end,
         colors = {
