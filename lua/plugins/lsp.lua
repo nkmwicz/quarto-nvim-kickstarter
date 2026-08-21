@@ -594,6 +594,21 @@ return {
           local root = util.root_pattern('.git', 'setup.py', 'setup.cfg', 'pyproject.toml', 'requirements.txt')(fname) or util.path.dirname(fname)
           on_dir(root)
         end,
+        -- pyright has no automatic .venv detection outside Pylance/VS Code, so it
+        -- otherwise resolves imports against the system python and misses anything
+        -- only installed in the project's venv (e.g. via `uv sync`).
+        before_init = function(_, config)
+          local venv_python = config.root_dir .. '/.venv/bin/python'
+          if vim.uv.fs_stat(venv_python) then
+            -- mutate in place: client.settings is captured as a reference to
+            -- config.settings in Client.create(), which runs before before_init,
+            -- so reassigning config.settings here (e.g. via tbl_deep_extend)
+            -- would silently be discarded.
+            config.settings = config.settings or {}
+            config.settings.python = config.settings.python or {}
+            config.settings.python.pythonPath = venv_python
+          end
+        end,
       })
       vim.lsp.enable('pyright')
 
