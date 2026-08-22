@@ -79,6 +79,8 @@ Requires the **kitty** terminal and system packages: `imagemagick`, `libmagickwa
 
 This is the core of the configuration. Two modules — `lua/config/binder.lua` and `lua/config/research.lua` — implement a Scrivener-style non-linear writing workflow for an academic historian. The design theory is that a historian writes arguments, not files: sections are drafted out of order, reorganised as the argument develops, and assembled into a final document only at the end. Research material accumulates alongside the manuscript, organised thematically rather than by source, because retrieval happens by concept ("what did I find about secret diplomacy in 1546?") not by bibliography.
 
+**Scope boundary**: `research.lua` is deliberately scoped to a single manuscript — its `research/` directory lives inside that project, alongside `sections/`, and holds notes gathered in service of *that* book or article's argument. It is not a general-purpose PKM tool and should not grow hierarchy, source-identity schemes, or cross-project linking (see the Research section below). Standing, cross-project secondary-research reading notes (e.g. long-running book note vaults independent of any single manuscript) belong in a separate Obsidian vault, managed via `obsidian.nvim` rather than `research.lua` — see the Obsidian section below.
+
 ### Binder (`lua/config/binder.lua`, `<leader>b…`)
 
 The unit of work is a **section** — a `.qmd` file in a `sections/` subdirectory. The manuscript is assembled by Quarto `{{< include >}}` directives in a parent `.qmd` file. The binder reads and writes that parent file to control order.
@@ -139,6 +141,18 @@ Commands:
 The `research/` directory is created automatically on first use. All commands open files in a vertical split so the manuscript section remains visible alongside the research note.
 
 When extending this code: the retrieval model is grep-and-heading, not hierarchy. Do not add subdirectory structure or source-identity schemes (citekey filenames, archive folders). The thematic file with `##` snippet headings is the intentional unit.
+
+## Obsidian (secondary research vaults)
+
+`lua/plugins/notes.lua` configures `obsidian-nvim/obsidian.nvim` (the maintained community fork — the original `epwalsh/obsidian.nvim` is archived/unmaintained) for two standing vaults, independent of any single manuscript:
+- `~/vaults/work` — teaching/data-analytics notes
+- `~/vaults/books` — secondary-research reading notes for book projects
+
+This is separate in purpose and data model from `research.lua` (see the scope boundary note under Writing environment above): Obsidian vaults are long-lived and cross-project with wikilinks/backlinks, whereas `research.lua` is per-manuscript and grep-and-heading. The plugin only activates for markdown buffers inside these two workspace paths (no dynamic/catch-all workspace is configured), so it never touches `research.lua`'s `.md` files or binder's `.qmd` sections.
+
+Keymaps (`<leader>n…`, buffer-local, active only inside the two vaults): `nd`/`nt`/`ny` — today/tomorrow/yesterday daily note; `nn` — new note; `no`/`nO` — quick switch / open in Obsidian app; `ns` — search; `nb` — backlinks; `nf` — follow link; `nc` — toggle checkbox; `nw` — switch workspace; `nS` — run `ob sync` (the Obsidian headless CLI, from npm) against whichever vault the current buffer belongs to, resolved by walking up for a `.obsidian/` directory rather than trusting the plugin's active-workspace state.
+
+`conceallevel` is scoped to vault note buffers via `ObsidianNoteEnter`/`ObsidianNoteLeave` autocmds (set to 1 on enter, back to 0 on leave) rather than changed globally — the rest of the config keeps `conceallevel=0` by default with a manual `<leader>hch`/`<leader>hcs` toggle.
 
 ## Disabled plugins
 
