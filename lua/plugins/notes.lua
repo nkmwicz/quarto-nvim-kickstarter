@@ -3,13 +3,11 @@
 -- `ob` is the Obsidian headless CLI (from npm), used here to sync whichever
 -- vault the current buffer belongs to, found by walking up for `.obsidian/`.
 local function ob_sync_current_vault()
-  local buf_dir = vim.fn.expand '%:p:h'
-  local found = vim.fs.find('.obsidian', { path = buf_dir, upward = true, type = 'directory' })[1]
-  if not found then
+  local vault_root = require('config.evergreen').vault_root(vim.fn.expand '%:p:h')
+  if not vault_root then
     vim.notify('ob sync: current buffer is not inside an Obsidian vault', vim.log.levels.WARN)
     return
   end
-  local vault_root = vim.fs.dirname(found)
   vim.cmd('vsplit term://' .. vault_root .. '//ob sync --path ' .. vim.fn.shellescape(vault_root))
 end
 
@@ -55,6 +53,9 @@ return {
       { '<leader>na', function() require('obsidian.actions').add_property() end, desc = 'obsidian [a]dd frontmatter property (alias, etc.)' },
       { '<leader>nT', function() require('obsidian.actions').add_tag() end, desc = 'obsidian add [T]ag' },
       { '<leader>nS', ob_sync_current_vault, desc = 'ob [S]ync current vault' },
+      { '<leader>nr', function() require('config.evergreen').reading_view() end, desc = 'evergreen [r]eading view (stitch child notes by page)' },
+      { '<leader>nnc', function() require('config.evergreen').new_child_note() end, desc = 'evergreen new [n]ote: [c]hild (linked to source)' },
+      { '<leader>nns', function() require('config.evergreen').new_source_note() end, desc = 'evergreen new [n]ote: [s]ource' },
     },
     ---@module 'obsidian'
     ---@type obsidian.config
