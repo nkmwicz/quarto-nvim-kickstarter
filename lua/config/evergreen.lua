@@ -1,7 +1,8 @@
 -- Evergreen/source-note workflow for Obsidian vaults: source notes (books,
 -- articles, websites) carry `type: source` frontmatter and a summary body.
--- Atomic "child" notes link back via `source: [[Source Title]]` plus a
--- `page:` locator. This module resolves that link graph by grepping
+-- Atomic "child" notes link back via `source: [[Source Title]]` plus an
+-- optional `chapter:` label and a `page:` locator. This module resolves that
+-- link graph by grepping
 -- frontmatter directly (same no-external-database approach as
 -- binder.lua/research.lua) rather than a database, and provides:
 --   - a read-only "reading view" that stitches a source's child notes into
@@ -278,7 +279,18 @@ function M.reading_view()
   end
 
   local lines, jump_targets = { '# Reading: ' .. display_title(source_note), '' }, {}
+  local last_chapter = false
   for _, note in ipairs(notes) do
+    local chapter = note:get_field 'chapter'
+    if chapter and chapter ~= '' then
+      if chapter ~= last_chapter then
+        table.insert(lines, '### ' .. chapter)
+        table.insert(lines, '')
+        last_chapter = chapter
+      end
+    else
+      last_chapter = false
+    end
     local page = note:get_field 'page'
     local label = page and ('p. ' .. page) or '(no page)'
     table.insert(lines, ('## %s — %s'):format(label, display_title(note)))
@@ -338,8 +350,8 @@ local function insert_frontmatter_fields(bufnr, fields)
   end
 end
 
---- Prompt for a title and page locator, create a new child note via
---- `:Obsidian new`, and pre-link it to the current source note.
+--- Prompt for a title, chapter label, and page locator, create a new child
+--- note via `:Obsidian new`, and pre-link it to the current source note.
 function M.new_child_note()
   local source_note = resolve_source_note()
   if not source_note then
@@ -350,18 +362,24 @@ function M.new_child_note()
       return
     end
     title = vim.trim(title)
-    vim.ui.input({ prompt = 'Page: ' }, function(page)
-      page = page and vim.trim(page) or ''
-      vim.cmd('Obsidian new ' .. vim.fn.fnameescape(title))
-      local bufnr = vim.api.nvim_get_current_buf()
-      local fields = {
-        { key = 'type', value = 'child' },
-        { key = 'source', value = ('[[%s]]'):format(link_key(source_note)) },
-      }
-      if page ~= '' then
-        table.insert(fields, { key = 'page', value = page })
-      end
-      insert_frontmatter_fields(bufnr, fields)
+    vim.ui.input({ prompt = 'Chapter: ' }, function(chapter)
+      chapter = chapter and vim.trim(chapter) or ''
+      vim.ui.input({ prompt = 'Page: ' }, function(page)
+        page = page and vim.trim(page) or ''
+        vim.cmd('Obsidian new ' .. vim.fn.fnameescape(title))
+        local bufnr = vim.api.nvim_get_current_buf()
+        local fields = {
+          { key = 'type', value = 'child' },
+          { key = 'source', value = ('[[%s]]'):format(link_key(source_note)) },
+        }
+        if chapter ~= '' then
+          table.insert(fields, { key = 'chapter', value = chapter })
+        end
+        if page ~= '' then
+          table.insert(fields, { key = 'page', value = page })
+        end
+        insert_frontmatter_fields(bufnr, fields)
+      end)
     end)
   end)
 end
