@@ -384,6 +384,58 @@ function M.new_child_note()
   end)
 end
 
+--- Best string to slug the current note's filename from: `author:` +
+--- `title:` (joined; `author:` may be a scalar or a YAML list) if both are
+--- present, else `title:` alone, else the first alias.
+local function slug_source(bufnr)
+  local title = frontmatter_field(bufnr, 'title')
+  if title and title ~= '' then
+    local authors = frontmatter_values(bufnr, 'author')
+    if #authors > 0 then
+      return table.concat(authors, ', ') .. ' ' .. title
+    end
+    return title
+  end
+  return frontmatter_values(bufnr, 'aliases')[1]
+end
+
+--- Rename the current note's file to match the slug of its `author:` +
+--- `title:` fields (or `title:` alone, or first alias, as fallbacks) — the
+--- same slugging algorithm `note_id_func` uses for new notes
+--- (`obsidian.builtin.title_id`). Delegates to `:Obsidian rename` so
+--- backlinks across the vault get updated too. Appends `-2`, `-3`, ... if
+--- the slug collides with a different existing file.
+function M.rename_to_title_slug()
+  local bufnr = vim.api.nvim_get_current_buf()
+  local path = vim.api.nvim_buf_get_name(bufnr)
+  if path == '' then
+    vim.notify('evergreen: buffer is not a file', vim.log.levels.WARN)
+    return
+  end
+  local title = slug_source(bufnr)
+  if not title or title == '' then
+    vim.notify('evergreen: note has no `title:` field or alias to slugify from', vim.log.levels.WARN)
+    return
+  end
+
+  local builtin = require 'obsidian.builtin'
+  local dir = vim.fs.dirname(path)
+  local current_stem = vim.fn.fnamemodify(path, ':t:r')
+  local base = builtin.title_to_slug(title)
+  local candidate, idx = base, 2
+  while candidate ~= current_stem and vim.fn.filereadable(vim.fs.joinpath(dir, candidate .. '.md')) == 1 do
+    candidate = ('%s-%d'):format(base, idx)
+    idx = idx + 1
+  end
+
+  if candidate == current_stem then
+    vim.notify('evergreen: filename already matches title slug', vim.log.levels.INFO)
+    return
+  end
+
+  vim.cmd('Obsidian rename ' .. candidate)
+end
+
 local source_types = { 'book', 'article', 'website', 'video', 'podcast' }
 
 --- Prompt for a title and source type, create a new source note via

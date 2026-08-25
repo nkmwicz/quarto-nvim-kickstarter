@@ -56,16 +56,30 @@ return {
       { '<leader>nr', function() require('config.evergreen').reading_view() end, desc = 'evergreen [r]eading view (stitch child notes by page)' },
       { '<leader>nnc', function() require('config.evergreen').new_child_note() end, desc = 'evergreen new [n]ote: [c]hild (linked to source)' },
       { '<leader>nns', function() require('config.evergreen').new_source_note() end, desc = 'evergreen new [n]ote: [s]ource' },
+      { '<leader>nR', function() require('config.evergreen').rename_to_title_slug() end, desc = 'evergreen [R]ename file to match title slug' },
     },
     ---@module 'obsidian'
     ---@type obsidian.config
-    opts = {
-      legacy_commands = false,
-      workspaces = {
-        { name = 'work', path = '~/vaults/work' },
-        { name = 'books', path = '~/vaults/books' },
-      },
-    },
+    -- `opts` must be a function, not a table: it's evaluated when the plugin
+    -- loads (after obsidian.nvim's own runtimepath entry is added), whereas
+    -- a plain table is evaluated eagerly while lazy.nvim reads the spec,
+    -- before `require('obsidian.builtin')` would be resolvable.
+    opts = function()
+      return {
+        legacy_commands = false,
+        -- Slug the title into the filename (e.g. `the-prince-machiavelli.md`)
+        -- instead of obsidian.nvim's default random zettel id, so filenames
+        -- are actually readable/fuzzy-findable via `<leader>no`. Collisions
+        -- get `-2`, `-3`, ... appended automatically. Note: renaming a note's
+        -- `title:` field later does NOT rename the file — use `:Obsidian
+        -- rename` if you want them to stay in sync.
+        note_id_func = require('obsidian.builtin').title_id,
+        workspaces = {
+          { name = 'work', path = '~/vaults/work' },
+          { name = 'books', path = '~/vaults/books' },
+        },
+      }
+    end,
     config = function(_, opts)
       require('obsidian').setup(opts)
       -- obsidian's checkbox/link UI features need conceallevel 1-2; the config
