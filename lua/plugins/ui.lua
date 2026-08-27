@@ -144,6 +144,16 @@ return {
           sorting_strategy = 'ascending',
           layout_config = {
             prompt_position = 'top',
+            -- flex picks horizontal (side-by-side) when width >= flip_columns,
+            -- else vertical (top/bottom) when height >= flip_lines, else falls
+            -- back to horizontal with its preview_cutoff hiding the preview
+            -- entirely. Default flip_lines (40) rarely triggers on a normal
+            -- terminal height, so narrow-but-short windows skipped straight to
+            -- "no preview" instead of ever using the top/bottom split.
+            flip_columns = 120,
+            flip_lines = 20,
+            vertical = { preview_cutoff = 20 },
+            horizontal = { preview_cutoff = 120 },
           },
           mappings = {
             i = {
