@@ -841,11 +841,11 @@ local function cmd_focus()
   end, { buffer = buf, silent = true, desc = 'close [f]ocus' })
 end
 
--- ── bh: section history ──────────────────────────────────────────────────────
+-- ── bh / gh: file history (git log float, <CR> to show diff) ────────────────
 
-local function cmd_history()
-  if not require_section_file() then return end
-  local fpath = vim.fn.expand '%:p'
+-- Show a git-log float for fpath, with <CR> opening `git show` for that
+-- commit in a terminal split. Generic — not scoped to sections/.
+function M.git_history(fpath)
   local fname = vim.fn.fnamemodify(fpath, ':t')
   local log   = vim.fn.systemlist { 'git', 'log', '--oneline', '--', fpath }
   if #log == 0 then
@@ -858,7 +858,7 @@ local function cmd_history()
   lines[#lines + 1] = ''
   lines[#lines + 1] = '  <Enter>: show diff in split    q: close'
 
-  local buf, win = open_float(lines, 'Section History')
+  local buf, win = open_float(lines, 'File History')
   vim.api.nvim_win_set_cursor(win, { 3, 0 })
 
   vim.keymap.set('n', '<CR>', function()
@@ -866,9 +866,14 @@ local function cmd_history()
     local hash = lines[row] and lines[row]:match '^%s+(%x+)'
     if not hash then return end
     vim.api.nvim_win_close(win, true)
-    vim.cmd('botright split | terminal git show ' .. hash .. ' -- ' .. vim.fn.shellescape(fpath))
+    vim.cmd('botright split | terminal git --no-pager show ' .. hash .. ' -- ' .. vim.fn.shellescape(fpath))
   end, { buffer = buf, silent = true })
   close_keys(buf, win)
+end
+
+local function cmd_history()
+  if not require_section_file() then return end
+  M.git_history(vim.fn.expand '%:p')
 end
 
 -- ── bir: status report (moved from keymap.lua) ───────────────────────────────

@@ -379,6 +379,11 @@ wk.add({
     { "<leader>gdc", ":DiffviewClose<cr>", desc = "[c]lose" },
     { "<leader>gdh", ":DiffviewFileHistory %<cr>", desc = "[h]istory (current file)" },
     { "<leader>gdo", ":DiffviewOpen<cr>", desc = "[o]pen" },
+    {
+      "<leader>gh",
+      function() require('config.binder').git_history(vim.fn.expand '%:p') end,
+      desc = "[h]istory (current file)",
+    },
     { "<leader>gs", ":Gitsigns<cr>", desc = "git [s]igns" },
     { "<leader>gwc", ":lua require('telescope').extensions.git_worktree.create_git_worktree()<cr>", desc = "worktree create" },
     { "<leader>gws", ":lua require('telescope').extensions.git_worktree.git_worktrees()<cr>", desc = "worktree switch" },
