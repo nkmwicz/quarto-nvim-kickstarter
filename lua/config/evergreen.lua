@@ -137,15 +137,16 @@ local function display_title(note)
 end
 
 --- The string to embed inside a `[[...]]` link to `note` so the link is
---- actually resolvable (by Obsidian and by our own reverse lookup below):
---- the first alias if there is one (readable, and set automatically from
---- whatever title you typed at note creation), else the raw id. Deliberately
---- does NOT use a bare `title:` field — `Note.reference_ids()` doesn't
---- recognize that as a valid reference, only id/aliases/filename do.
+--- actually resolvable (by Obsidian and by our own reverse lookup below).
+--- Always the raw id, never an alias: obsidian.nvim's built-in
+--- `:Obsidian backlinks` (`Note.get_reference_paths`) only searches for a
+--- note's filename/id, not its aliases, so an alias-based link is invisible
+--- to it even though it still resolves fine on follow and still matches our
+--- own `collect_child_notes` search below (which searches for whatever this
+--- function returns). Deliberately does NOT use a bare `title:` field —
+--- `Note.reference_ids()` doesn't recognize that as a valid reference, only
+--- id/aliases/filename do.
 local function link_key(note)
-  if note.aliases and note.aliases[1] and note.aliases[1] ~= '' then
-    return note.aliases[1]
-  end
   return note.id
 end
 

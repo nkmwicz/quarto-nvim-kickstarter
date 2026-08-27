@@ -124,7 +124,28 @@ return {
           { name = 'otter' }, -- for code chunks in quarto
           { name = 'path' },
           { name = 'nvim_lsp_signature_help' },
-          { name = 'nvim_lsp' },
+          {
+            name = 'nvim_lsp',
+            -- obsidian.nvim's `[[` completion (LSP client "obsidian-ls") offers
+            -- one candidate per id/title/alias for the same note. Only the
+            -- id-matched candidate's insert text is unpiped (`[[id]]`) — every
+            -- other one differs from the note's filename, so obsidian pipes it
+            -- (`[[id|Title or Alias]]`). Filter those out so `[[` completion
+            -- can only ever insert by id, matching the evergreen convention
+            -- (see lua/config/evergreen.lua) where source: links must be
+            -- id-based for :Obsidian backlinks to find them.
+            entry_filter = function(entry)
+              if entry.source:get_debug_name() ~= 'nvim_lsp:obsidian-ls' then
+                return true
+              end
+              local item = entry:get_completion_item()
+              if item.kind ~= vim.lsp.protocol.CompletionItemKind.Reference then
+                return true
+              end
+              local new_text = (item.textEdit and item.textEdit.newText) or item.insertText or ''
+              return not new_text:find('|', 1, true)
+            end,
+          },
           { name = 'luasnip', keyword_length = 3, max_item_count = 3 },
           { name = 'pandoc_references' },
           { name = 'buffer', keyword_length = 5, max_item_count = 3 },
