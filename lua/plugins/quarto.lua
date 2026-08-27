@@ -72,6 +72,37 @@ return {
       vim.g.slime_menu_config = false
       vim.g.slime_neovim_ignore_unlisted = true
 
+      -- vim-slime's neovim target rebuilds its channel list by scanning every
+      -- buffer and calling jobpid() on each terminal's &channel. If any
+      -- terminal buffer's job has already died (e.g. an exited REPL whose
+      -- window was never closed), jobpid() throws E900: Invalid channel id
+      -- and aborts the whole scan, so even a live terminal can't be found.
+      -- Force-load the vendor autoload file once, then override just that
+      -- one function to skip dead channels instead of erroring.
+      vim.cmd [[
+      runtime autoload/slime/targets/neovim.vim
+      function! slime#targets#neovim#SlimeAddChannel(buf_in) abort
+        let buf_in = str2nr(a:buf_in)
+        if slime#config#resolve("neovim_ignore_unlisted") && !buflisted(buf_in)
+          return
+        endif
+        let jobid = getbufvar(buf_in, "&channel")
+        if jobid == ""
+          return
+        endif
+        try
+          let job_pid = jobpid(jobid)
+        catch /E900/
+          return
+        endtry
+        if !exists("g:slime_last_channel")
+          let g:slime_last_channel = [{'jobid': jobid, 'pid': job_pid, 'bufnr': buf_in}]
+        else
+          call add(g:slime_last_channel, {'jobid': jobid, 'pid': job_pid, 'bufnr': buf_in})
+        endif
+      endfunction
+      ]]
+
       local function mark_terminal()
         local job_id = vim.b.terminal_job_id
         vim.print('job_id: ' .. job_id)
