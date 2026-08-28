@@ -150,8 +150,13 @@ return {
             -- entirely. Default flip_lines (40) rarely triggers on a normal
             -- terminal height, so narrow-but-short windows skipped straight to
             -- "no preview" instead of ever using the top/bottom split.
-            flip_columns = 120,
-            flip_lines = 20,
+            -- Nested under `flex` (rather than top-level) so non-flex
+            -- strategies (e.g. ui-select's dropdown, which uses "center")
+            -- don't inherit these as unrecognized keys and error out.
+            flex = {
+              flip_columns = 120,
+              flip_lines = 20,
+            },
             vertical = { preview_cutoff = 20 },
             horizontal = { preview_cutoff = 120 },
           },
