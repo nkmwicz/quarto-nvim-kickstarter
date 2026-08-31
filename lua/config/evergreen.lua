@@ -351,6 +351,43 @@ local function insert_frontmatter_fields(bufnr, fields)
   end
 end
 
+local new_chapter_choice = '+ New chapter...'
+
+--- Distinct `chapter:` values already used among `source_note`'s child
+--- notes, in the same page-sorted order `collect_child_notes` produces (so
+--- the picker roughly follows the book's own structure).
+local function existing_chapters(source_note, root)
+  local seen, list = {}, {}
+  for _, note in ipairs(collect_child_notes(source_note, root)) do
+    local chapter = note:get_field 'chapter'
+    if chapter and chapter ~= '' and not seen[chapter] then
+      seen[chapter] = true
+      table.insert(list, chapter)
+    end
+  end
+  return list
+end
+
+--- Resolve a chapter label via `callback(chapter)`: offers a picker of
+--- chapters already used for `source_note` (plus a "new chapter" entry that
+--- falls back to free text), or goes straight to free text if none exist yet.
+local function prompt_chapter(source_note, root, callback)
+  local chapters = root and existing_chapters(source_note, root) or {}
+  if #chapters == 0 then
+    vim.ui.input({ prompt = 'Chapter: ' }, function(chapter) callback(chapter and vim.trim(chapter) or '') end)
+    return
+  end
+  vim.ui.select(vim.list_extend({ new_chapter_choice }, chapters), { prompt = 'Chapter: ' }, function(choice)
+    if not choice or choice == '' then
+      callback ''
+    elseif choice == new_chapter_choice then
+      vim.ui.input({ prompt = 'Chapter: ' }, function(chapter) callback(chapter and vim.trim(chapter) or '') end)
+    else
+      callback(choice)
+    end
+  end)
+end
+
 --- Prompt for a title, chapter label, and page locator, create a new child
 --- note via `:Obsidian new`, and pre-link it to the current source note.
 function M.new_child_note()
@@ -358,13 +395,13 @@ function M.new_child_note()
   if not source_note then
     return
   end
+  local root = M.vault_root(vim.fs.dirname(tostring(source_note.path)))
   vim.ui.input({ prompt = 'Note title: ' }, function(title)
     if not title or vim.trim(title) == '' then
       return
     end
     title = vim.trim(title)
-    vim.ui.input({ prompt = 'Chapter: ' }, function(chapter)
-      chapter = chapter and vim.trim(chapter) or ''
+    prompt_chapter(source_note, root, function(chapter)
       vim.ui.input({ prompt = 'Page: ' }, function(page)
         page = page and vim.trim(page) or ''
         vim.cmd('Obsidian new ' .. vim.fn.fnameescape(title))
