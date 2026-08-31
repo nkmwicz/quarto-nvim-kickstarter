@@ -644,7 +644,11 @@ return {
         backend = 'kitty',
         integrations = {
           markdown = {
-            enabled = true,
+            -- Disabled: cursor-triggered inline image-link preview was
+            -- crashing ImageMagick on a race with partially-written PNGs.
+            -- Molten's cell-output rendering (image.nvim as its image_provider,
+            -- see lua/plugins/quarto.lua) is unaffected by this.
+            enabled = false,
             only_render_image_at_cursor = true,
             -- only_render_image_at_cursor_mode = "popup",
             filetypes = { 'markdown', 'vimwiki', 'quarto' },

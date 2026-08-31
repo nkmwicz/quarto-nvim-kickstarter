@@ -26,11 +26,11 @@ All plugins live under `lua/plugins/` and are auto-discovered by lazy.nvim:
 | File | Purpose |
 |---|---|
 | `lsp.lua` | Mason + nvim-lspconfig + otter.nvim + harper_ls (grammar/prose checker; ltex-ls kept installed but disabled — see LSP notes). All LSP server configs use `vim.lsp.config(name, ...)` / `vim.lsp.enable(name)` pattern (not the legacy `.setup{}` form). |
-| `quarto.lua` | quarto-nvim, jupytext (ipynb→qmd), vim-slime (REPL), img-clip, nabla (math preview) |
+| `quarto.lua` | quarto-nvim, jupytext (ipynb→qmd), vim-slime (REPL), img-clip, nabla (math preview), molten-nvim (Jupyter cell output, `<leader>m…`; renders images via image.nvim) |
 | `completion.lua` | nvim-cmp with many sources, GitHub Copilot (auto-trigger), CopilotChat |
 | `editing.lua` | conform.nvim (format on save), nvim-surround, Comment.nvim, neogen, nvim-prose (word count) |
 | `treesitter.lua` | Treesitter with textobjects; Tab toggles folds |
-| `ui.lua` | Telescope, oil.nvim, nvim-tree, which-key, toggleterm, headlines.nvim, image.nvim |
+| `ui.lua` | Telescope, oil.nvim, nvim-tree, which-key, toggleterm, headlines.nvim, image.nvim (markdown-link inline preview integration disabled; still used as Molten's image backend) |
 | `debugging.lua` | nvim-dap + dapui + neotest (Python) |
 
 ### Keymap loading
@@ -156,7 +156,7 @@ Keymaps (`<leader>n…`, buffer-local, active only inside the two vaults): `nd`/
 
 ## Disabled plugins
 
-Several plugins are kept as commented-out examples but disabled (`enabled = false`): lualine (custom statusline is used instead), trouble, indent-blankline, molten-nvim, flash.nvim, fidget.nvim. Enable by setting `enabled = true`.
+Several plugins are kept as commented-out examples but disabled (`enabled = false`): lualine (custom statusline is used instead), trouble, indent-blankline, flash.nvim, fidget.nvim. Enable by setting `enabled = true`.
 
 ## Local dev plugins
 
