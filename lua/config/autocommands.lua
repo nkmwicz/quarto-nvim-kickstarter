@@ -47,6 +47,23 @@ vim.api.nvim_create_autocmd('FileType', {
   end,
 })
 
+-- otter.nvim's own BufDelete cleanup (otter/init.lua) only wipes the fake
+-- per-language otter buffer, not the keeper.rafts[main_nr] entry itself.
+-- That leaves a stale raft holding a treesitter parser bound to a now-dead
+-- bufnr. If an LSP request (e.g. cmp-nvim-lsp-signature-help) later targets
+-- that dead buffer, otter's get_current_language_context tries to parse it
+-- and treesitter throws "invalid buffer handle". Clear the raft ourselves
+-- once the buffer is actually gone.
+vim.api.nvim_create_autocmd({ 'BufDelete', 'BufWipeout' }, {
+  pattern = '*',
+  callback = function(ev)
+    local ok, keeper = pcall(require, 'otter.keeper')
+    if ok and keeper.rafts then
+      keeper.rafts[ev.buf] = nil
+    end
+  end,
+})
+
 -- Global gf: resolve ./relative and ../relative paths from the buffer's directory
 -- in any filetype. Neovim natively resolves ./ from cwd, which breaks when they differ.
 local function gf_open_relative(cfile, dir)
