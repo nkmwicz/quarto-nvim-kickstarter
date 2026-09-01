@@ -90,6 +90,8 @@ return {
       }
       vim.o.foldmethod = 'expr'
       vim.o.foldexpr = 'nvim_treesitter#foldexpr()' -- treesitter folding
+      vim.o.foldenable = true
+      vim.o.foldlevelstart = 99 -- start with all folds open; close with zc/zM as needed
       -- vim.opt.foldtext = "v:folddashes.repeat(v:foldlevel)..' ' .. v:foldstart .. ' lines: ' .. (v:foldend - v:foldstart + 1)"
       vim.api.nvim_set_keymap('n', '<Tab>', 'za', { noremap = true, silent = true })
       local vim = vim
