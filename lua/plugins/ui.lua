@@ -217,165 +217,49 @@ return {
       -- .bib-file-backed Zotero picker. Reads from a BBT auto-export instead of SQLite.
       -- Mirrors the telescope-zotero workflow: inserts @citekey at cursor and appends
       -- the full BibTeX entry to the project's references.bib (found via _quarto.yml).
-      local function zotero_bib_picker(opts)
-        opts = opts or {}
-        local bib_path = vim.fn.expand '~/home/zotero-plugins/zotero-library.bib'
+      -- Citation-insert action for `<leader>fz`: writes `@key` at the cursor
+      -- and appends the full BibTeX entry to the manuscript's .bib file (if
+      -- not already there). The picker itself lives in config.zotero, shared
+      -- with evergreen.lua's Zotero-driven source-note capture.
+      local function insert_citation(item)
+        vim.api.nvim_put({ '@' .. item.key }, '', false, true)
 
-        if vim.fn.filereadable(bib_path) == 0 then
-          vim.notify(
-            '[zotero] Library not found. Export your Zotero library via Better BibTeX to:\n  ' .. bib_path,
-            vim.log.levels.WARN
-          )
+        local locate_bib = require('zotero.bib').locate_quarto_bib
+        local bib_out = locate_bib()
+        if not bib_out then
+          vim.notify_once('[zotero] Could not find a bibliography file', vim.log.levels.WARN)
           return
         end
+        bib_out = vim.fn.expand(bib_out)
 
-        local content = table.concat(vim.fn.readfile(bib_path), '\n')
-        local entries = {}
-        for entry_str in content:gmatch '@[%w_]+%b{}' do
-          local type_ = entry_str:match '^@([%w_]+)'
-          local ltype = type_ and type_:lower()
-          if ltype and ltype ~= 'comment' and ltype ~= 'string' and ltype ~= 'preamble' then
-            local key = entry_str:match '^@[%w_]+{%s*([^,%s]+)%s*,'
-            if key then
-              local title_raw = entry_str:match '[Tt]itle%s*=%s*(%b{})'
-                or entry_str:match '[Tt]itle%s*=%s*"([^"]*)"'
-                or ''
-              local title = title_raw:gsub('^{', ''):gsub('}$', ''):gsub('{(.-)}', '%1')
-
-              local author_raw = entry_str:match '[Aa]uthor%s*=%s*(%b{})'
-                or entry_str:match '[Aa]uthor%s*=%s*"([^"]*)"'
-                or ''
-              author_raw = author_raw:gsub('^{', ''):gsub('}$', '')
-              local first_last = (author_raw:match '^([^,\n]+)' or ''):gsub('{(.-)}', '%1'):gsub('%s+$', '')
-
-              local year = entry_str:match '[Yy]ear%s*=%s*{?(%d%d%d%d)}?'
-                or entry_str:match '[Dd]ate%s*=%s*[{"]?(%d%d%d%d)'
-                or ''
-
-              table.insert(entries, {
-                key = key,
-                title = title,
-                author = first_last,
-                year = year,
-                raw = entry_str .. '\n\n',
-              })
+        local ok, lines = pcall(io.lines, bib_out)
+        if not ok then
+          if vim.fn.confirm("Bibliography file missing. Create '" .. bib_out .. "'?", '&Yes\n&No', 1) == 1 then
+            vim.fn.writefile({}, bib_out)
+          else
+            return
+          end
+        else
+          for line in lines do
+            if line:match '^@' and line:match(item.key) then
+              return
             end
           end
         end
 
-        if #entries == 0 then
-          vim.notify('[zotero] No entries found in ' .. bib_path, vim.log.levels.WARN)
+        local file = io.open(bib_out, 'a')
+        if not file then
+          vim.notify('[zotero] Could not open ' .. bib_out .. ' for appending', vim.log.levels.ERROR)
           return
         end
-
-        local finders = require 'telescope.finders'
-        local pickers = require 'telescope.pickers'
-        local previewers = require 'telescope.previewers'
-        local conf = require('telescope.config').values
-        local actions = require 'telescope.actions'
-        local action_state = require 'telescope.actions.state'
-        local entry_display = require 'telescope.pickers.entry_display'
-
-        local type_abbrev = {
-          article       = 'art',
-          book          = 'bk',
-          incollection  = 'ch',
-          inproceedings = 'conf',
-          phdthesis     = 'phd',
-          mastersthesis = 'msc',
-          techreport    = 'rpt',
-          unpublished   = 'ms',
-          misc          = 'misc',
-        }
-
-        local displayer = entry_display.create {
-          separator = ' ',
-          items = {
-            { width = 4 },
-            { width = 24, right_justify = true },
-            { remaining = true },
-          },
-        }
-
-        local function make_display(e)
-          local abbrev = type_abbrev[e.type and e.type:lower()] or (e.type and e.type:sub(1, 4)) or '?'
-          return displayer {
-            { abbrev,                      'SpecialChar' },
-            { e.author .. ', ' .. e.year,  'Comment' },
-            { e.title,                     'Title' },
-          }
-        end
-
-        pickers
-          .new(opts, {
-            prompt_title = 'Zotero library',
-            finder = finders.new_table {
-              results = entries,
-              entry_maker = function(e)
-                return {
-                  value = e,
-                  display = function(_) return make_display(e) end,
-                  ordinal = e.author .. ' ' .. e.year .. ' ' .. e.title,
-                }
-              end,
-            },
-            sorter = conf.generic_sorter(opts),
-            previewer = previewers.new_buffer_previewer {
-              title = 'BibTeX entry',
-              define_preview = function(self, entry)
-                local lines = vim.split(entry.value.raw, '\n')
-                vim.api.nvim_buf_set_lines(self.state.bufnr, 0, -1, false, lines)
-                vim.bo[self.state.bufnr].filetype = 'bibtex'
-              end,
-            },
-            attach_mappings = function(prompt_bufnr)
-              actions.select_default:replace(function()
-                actions.close(prompt_bufnr)
-                local entry = action_state.get_selected_entry()
-                if not entry then return end
-                local item = entry.value
-
-                vim.api.nvim_put({ '@' .. item.key }, '', false, true)
-
-                local locate_bib = require('zotero.bib').locate_quarto_bib
-                local bib_out = locate_bib()
-                if not bib_out then
-                  vim.notify_once('[zotero] Could not find a bibliography file', vim.log.levels.WARN)
-                  return
-                end
-                bib_out = vim.fn.expand(bib_out)
-
-                local ok, lines = pcall(io.lines, bib_out)
-                if not ok then
-                  if vim.fn.confirm("Bibliography file missing. Create '" .. bib_out .. "'?", '&Yes\n&No', 1) == 1 then
-                    vim.fn.writefile({}, bib_out)
-                  else
-                    return
-                  end
-                else
-                  for line in lines do
-                    if line:match '^@' and line:match(item.key) then
-                      return
-                    end
-                  end
-                end
-
-                local file = io.open(bib_out, 'a')
-                if not file then
-                  vim.notify('[zotero] Could not open ' .. bib_out .. ' for appending', vim.log.levels.ERROR)
-                  return
-                end
-                file:write(item.raw)
-                file:close()
-                vim.print('wrote ' .. item.key .. ' to ' .. bib_out)
-              end)
-              return true
-            end,
-          })
-          :find()
+        file:write(item.raw)
+        file:close()
+        vim.print('wrote ' .. item.key .. ' to ' .. bib_out)
       end
 
-      vim.keymap.set('n', '<leader>fz', zotero_bib_picker, { desc = '[z]otero' })
+      vim.keymap.set('n', '<leader>fz', function()
+        require('config.zotero').pick { on_select = insert_citation }
+      end, { desc = '[z]otero' })
     end,
   },
 

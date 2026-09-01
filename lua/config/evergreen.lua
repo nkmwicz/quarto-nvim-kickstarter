@@ -476,25 +476,241 @@ end
 
 local source_types = { 'book', 'article', 'website', 'video', 'podcast' }
 
---- Prompt for a title and source type, create a new source note via
---- `:Obsidian new`, and stamp it `type: source`.
+--- Populate `bufnr`'s frontmatter as a new source note: either pick a Zotero
+--- entry (title/author/year/citekey filled in, file renamed to match) or
+--- enter a source type by hand. `default_title` seeds the manual path so a
+--- title already typed at note-creation time isn't asked for twice.
+function M.fill_source_note(bufnr, default_title)
+  vim.ui.select({ 'Pick from Zotero library', 'Enter manually' }, { prompt = 'Source note: ' }, function(choice)
+    if not choice then
+      return
+    end
+    if choice == 'Pick from Zotero library' then
+      require('config.zotero').pick {
+        prompt_title = 'Zotero library — new source note',
+        on_select = function(entry)
+          insert_frontmatter_fields(bufnr, {
+            { key = 'type', value = 'source' },
+            { key = 'title', value = entry.title },
+            { key = 'author', value = entry.author },
+            { key = 'year', value = entry.year },
+            { key = 'citekey', value = entry.key },
+            { key = 'status', value = 'reading' },
+          })
+          -- Rename the file to match the Zotero title, now that we have one.
+          vim.schedule(function()
+            if vim.api.nvim_buf_is_valid(bufnr) then
+              vim.api.nvim_buf_call(bufnr, function() M.rename_to_title_slug() end)
+            end
+          end)
+        end,
+      }
+      return
+    end
+
+    local function finish(title)
+      title = title and vim.trim(title) or ''
+      if title == '' then
+        return
+      end
+      vim.ui.select(source_types, { prompt = 'Source type: ' }, function(source_type)
+        local fields = { { key = 'type', value = 'source' }, { key = 'title', value = title } }
+        if source_type then
+          table.insert(fields, { key = 'source_type', value = source_type })
+        end
+        table.insert(fields, { key = 'status', value = 'reading' })
+        insert_frontmatter_fields(bufnr, fields)
+      end)
+    end
+
+    if default_title and default_title ~= '' then
+      finish(default_title)
+    else
+      vim.ui.input({ prompt = 'Source title: ' }, finish)
+    end
+  end)
+end
+
+--- Prompt for a title, create a new source note via `:Obsidian new`, and
+--- fill it in via `fill_source_note`.
 function M.new_source_note()
   vim.ui.input({ prompt = 'Source title: ' }, function(title)
     if not title or vim.trim(title) == '' then
       return
     end
     title = vim.trim(title)
-    vim.ui.select(source_types, { prompt = 'Source type: ' }, function(source_type)
-      vim.cmd('Obsidian new ' .. vim.fn.fnameescape(title))
-      local bufnr = vim.api.nvim_get_current_buf()
-      local fields = { { key = 'type', value = 'source' }, { key = 'title', value = title } }
-      if source_type then
-        table.insert(fields, { key = 'source_type', value = source_type })
+    M.suppress_next_auto_prompt()
+    vim.cmd('Obsidian new ' .. vim.fn.fnameescape(title))
+    M.fill_source_note(vim.api.nvim_get_current_buf(), title)
+  end)
+end
+
+--- Resolve `origin_bufnr`'s source note and prompt for chapter/page, then
+--- write `type`/`source`/`chapter`/`page` frontmatter into `bufnr`.
+function M.fill_child_note(bufnr, origin_bufnr)
+  if not origin_bufnr or not vim.api.nvim_buf_is_valid(origin_bufnr) then
+    vim.notify('evergreen: no origin note to resolve a source from', vim.log.levels.WARN)
+    return
+  end
+  local source_note = resolve_source_note(origin_bufnr)
+  if not source_note then
+    return
+  end
+  local root = M.vault_root(vim.fs.dirname(tostring(source_note.path)))
+  prompt_chapter(source_note, root, function(chapter)
+    vim.ui.input({ prompt = 'Page: ' }, function(page)
+      page = page and vim.trim(page) or ''
+      local fields = {
+        { key = 'type', value = 'child' },
+        { key = 'source', value = ('[[%s]]'):format(link_key(source_note)) },
+      }
+      if chapter ~= '' then
+        table.insert(fields, { key = 'chapter', value = chapter })
       end
-      table.insert(fields, { key = 'status', value = 'reading' })
+      if page ~= '' then
+        table.insert(fields, { key = 'page', value = page })
+      end
       insert_frontmatter_fields(bufnr, fields)
     end)
   end)
+end
+
+--- Prompt for a title, create a new child note via `:Obsidian new` linked
+--- to the current buffer's source, and fill it in via `fill_child_note`.
+function M.new_child_note()
+  local source_note = resolve_source_note()
+  if not source_note then
+    return
+  end
+  local origin_bufnr = vim.api.nvim_get_current_buf()
+  vim.ui.input({ prompt = 'Note title: ' }, function(title)
+    if not title or vim.trim(title) == '' then
+      return
+    end
+    M.suppress_next_auto_prompt()
+    vim.cmd('Obsidian new ' .. vim.fn.fnameescape(vim.trim(title)))
+    M.fill_child_note(vim.api.nvim_get_current_buf(), origin_bufnr)
+  end)
+end
+
+-- --- Auto-detect capture on [[link]]-triggered note creation --------------
+--
+-- Every note creation (`[[link]]` "create new note?", `:Obsidian new`,
+-- templates, unique notes) funnels through obsidian.nvim's `Note.create`,
+-- which fires a `User ObsidianNoteCreate` autocmd synchronously, before the
+-- note is written to disk. That's too early to run an async `vim.ui.select`
+-- (the write happens right after, in the same call), so instead: stash the
+-- origin buffer + typed title there, then act on the *next* `ObsidianNoteEnter`
+-- for that same path (fired once the new note's buffer becomes current) --
+-- offering a type picker and filling in frontmatter the same way the manual
+-- `<leader>nnc`/`<leader>nns` commands do.
+
+--- path -> { origin_bufnr, title }, consumed once by the matching
+--- ObsidianNoteEnter.
+local pending_creates = {}
+
+--- Set right before `new_child_note`/`new_source_note` call `:Obsidian new`
+--- themselves, so the auto-detect prompt doesn't also fire for a note
+--- they're already filling in by hand.
+local suppress_next = false
+function M.suppress_next_auto_prompt()
+  suppress_next = true
+end
+
+local new_note_type_choices = { 'Child note (linked to source)', 'Source note', 'Normal note' }
+
+function M.prompt_new_note_type(bufnr, origin_bufnr, default_title)
+  vim.ui.select(new_note_type_choices, { prompt = 'New note type: ' }, function(choice)
+    if not choice or choice == 'Normal note' then
+      return
+    elseif choice == new_note_type_choices[1] then
+      M.fill_child_note(bufnr, origin_bufnr)
+    else
+      M.fill_source_note(bufnr, default_title)
+    end
+  end)
+end
+
+--- Register the ObsidianNoteCreate/BufEnter autocmd pair that drives the
+--- auto-detect prompt. Call once from the obsidian.nvim plugin spec's
+--- `config` function.
+---
+--- Deliberately uses native `BufEnter`, not obsidian.nvim's own
+--- `ObsidianNoteEnter` proxy event: that proxy is wired up by a `FileType`
+--- autocmd that registers a buffer-scoped `BufEnter` handler, and for a
+--- brand-new buffer `FileType` can fire as part of the very same `BufEnter`
+--- that's supposed to trigger it, i.e. too late to still catch it — the
+--- proxy silently misses the first entry into a freshly created note.
+--- Native `BufEnter` has no such race.
+function M.setup()
+  vim.api.nvim_create_autocmd('User', {
+    pattern = 'ObsidianNoteCreate',
+    callback = function(ev)
+      if suppress_next then
+        suppress_next = false
+        return
+      end
+      local data = ev.data
+      if not data or not data.note or not data.note.id then
+        return
+      end
+      -- Only plain, user-typed creations (skip daily/unique/etc. scopes).
+      local scope = data.opts and data.opts.scope or 'plain'
+      if scope ~= 'plain' then
+        return
+      end
+      -- Keyed by `id` (the filename stem), not path: `data.note.path` here
+      -- is a plain table reconstructed by nvim_exec_autocmds's Object
+      -- marshaling, which drops the `Path` metatable/__tostring — plain
+      -- string fields like `id` survive that marshaling intact.
+      pending_creates[data.note.id] = {
+        origin_bufnr = vim.api.nvim_get_current_buf(),
+        title = data.note.title or data.note.id,
+      }
+    end,
+  })
+
+  vim.api.nvim_create_autocmd('BufEnter', {
+    pattern = '*.md',
+    callback = function(ev)
+      local id = vim.fn.fnamemodify(vim.api.nvim_buf_get_name(ev.buf), ':t:r')
+      local pending = pending_creates[id]
+      if not pending then
+        return
+      end
+      pending_creates[id] = nil
+      if frontmatter_field(ev.buf, 'type') then
+        return -- a template already stamped a type; don't second-guess it
+      end
+      M.prompt_new_note_type(ev.buf, pending.origin_bufnr, pending.title)
+    end,
+  })
+
+  -- Typing `[[Title` and accepting the completion menu's "(create)" entry
+  -- is a *different* creation path than the follow_link "Create new note?"
+  -- confirm dialog: it never opens the new note's buffer at all (it just
+  -- writes the file via the `obsidian.write_note` LSP command and inserts
+  -- the link text where you were typing), so the BufEnter hook above never
+  -- sees it. Wrap `actions.write_note` to open the note right after writing
+  -- it — matching the "create it, then go write in it" workflow — which
+  -- also lets BufEnter fire as normal from there.
+  --
+  -- Must happen before obsidian.nvim's LSP client first initializes:
+  -- `lsp/handlers/initialize.lua` snapshots every `actions.*` function into
+  -- a `vim.lsp.commands` closure once, on first attach, so patching
+  -- `actions.write_note` any later would be invisible to that path (the
+  -- `workspace/executeCommand` fallback path re-`require`s the module on
+  -- every call, so it isn't affected either way).
+  local actions = require 'obsidian.actions'
+  local orig_write_note = actions.write_note
+  actions.write_note = function(note)
+    orig_write_note(note)
+    local id = note and note.id
+    if id and pending_creates[id] then
+      local path = tostring(note.path)
+      vim.schedule(function() vim.cmd('edit ' .. vim.fn.fnameescape(path)) end)
+    end
+  end
 end
 
 return M

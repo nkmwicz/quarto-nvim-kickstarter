@@ -92,6 +92,9 @@ return {
         pattern = 'ObsidianNoteLeave',
         callback = function() vim.wo.conceallevel = 0 end,
       })
+      -- evergreen: prompt for note type (child/source/normal) on any
+      -- freshly-created note (via [[link]], `:Obsidian new`, etc.).
+      require('config.evergreen').setup()
     end,
   },
 }
