@@ -88,35 +88,10 @@ return {
         --   indent_levels = true,
         -- },
       }
-      vim.o.foldmethod = 'expr'
-      vim.o.foldexpr = 'nvim_treesitter#foldexpr()' -- treesitter folding
-      vim.o.foldenable = true
-      vim.o.foldlevelstart = 99 -- start with all folds open; close with zc/zM as needed
-      -- vim.opt.foldtext = "v:folddashes.repeat(v:foldlevel)..' ' .. v:foldstart .. ' lines: ' .. (v:foldend - v:foldstart + 1)"
+      -- Fold options and the open-folds-on-read safety net live in
+      -- config.global / config.autocommands (loaded before any buffer),
+      -- not here — see those files.
       vim.api.nvim_set_keymap('n', '<Tab>', 'za', { noremap = true, silent = true })
-      local vim = vim
-      local api = vim.api
-      local M = {}
-      function M.nvim_create_augroups(definitions)
-        for group_name, definition in pairs(definitions) do
-          api.nvim_command('augroup ' .. group_name)
-          api.nvim_command 'autocmd!'
-          for _, def in ipairs(definition) do
-            local command = table.concat(vim.tbl_flatten { 'autocmd', def }, ' ')
-            api.nvim_command(command)
-          end
-          api.nvim_command 'augroup END'
-        end
-      end
-
-      local autoCommands = {
-        -- other autocommands
-        open_folds = {
-          { 'BufReadPost,FileReadPost', '*', 'normal zR' },
-        },
-      }
-
-      M.nvim_create_augroups(autoCommands)
     end,
   },
 

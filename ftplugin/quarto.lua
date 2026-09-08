@@ -93,7 +93,14 @@ end
 
 highlight_cells()
 
-vim.api.nvim_create_autocmd({ 'ModeChanged', 'BufWrite' }, {
+-- TextChanged(I), not ModeChanged: cell boundaries only move when the buffer
+-- actually changes. ModeChanged fired on every mode transition (visual,
+-- command-line, entering insert with 'o', ...), forcing a synchronous
+-- parser:parse() + full extmark rebuild each time — needless work that also
+-- raced with treesitter's own incremental fold recompute (see fold options
+-- in config.global), which showed up as folds closing unpredictably right
+-- after 'o' or a save.
+vim.api.nvim_create_autocmd({ 'TextChanged', 'TextChangedI', 'BufWrite' }, {
   group = vim.api.nvim_create_augroup('QuartoCellHighlight', { clear = true }),
   buffer = buf,
   callback = highlight_cells,

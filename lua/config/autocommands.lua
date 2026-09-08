@@ -12,6 +12,36 @@ vim.api.nvim_create_autocmd({ 'FocusGained', 'BufEnter' }, {
   command = 'checktime',
 })
 
+-- Safety net for treesitter folding (see fold options in config.global).
+--
+-- Neovim's native treesitter fold engine (vim.treesitter.foldexpr, used via
+-- 'foldexpr') computes fold levels ASYNCHRONOUSLY: 'foldlevelstart' correctly
+-- sets 'foldlevel' to 99 the instant the buffer loads, but once the async
+-- fold pass finishes — often within the same tick, before this autocmd even
+-- runs — Neovim silently resets the window's 'foldlevel' down to the
+-- document's actual max fold depth, with no OptionSet event firing. If that
+-- max depth is low (e.g. a single top-level heading computed before deeper
+-- sections are parsed), every deeper fold ends up closed on open. A plain
+-- synchronous 'zR' here is not enough, since it runs before that reset lands.
+-- Deferring the reassertion by one event-loop tick (vim.schedule) lets the
+-- async pass settle first, then forces 'foldlevel' back to 99 for good.
+local function open_all_folds(ev)
+  local win = vim.api.nvim_get_current_win()
+  vim.cmd('normal! zR')
+  vim.schedule(function()
+    if vim.api.nvim_win_is_valid(win) and vim.api.nvim_win_get_buf(win) == ev.buf then
+      vim.api.nvim_win_call(win, function()
+        vim.wo.foldlevel = 99
+      end)
+    end
+  end)
+end
+
+vim.api.nvim_create_autocmd({ 'BufReadPost', 'FileReadPost', 'BufWinEnter' }, {
+  pattern = { '*' },
+  callback = open_all_folds,
+})
+
 vim.api.nvim_create_autocmd({ 'TermOpen' }, {
   pattern = { '*' },
   callback = function(_)

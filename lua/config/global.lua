@@ -38,6 +38,18 @@ vim.api.nvim_set_hl(0, 'TermCursor', { fg = '#A6E3A1', bg = '#A6E3A1' })
 -- disable fill chars (the ~ after the buffer)
 vim.o.fillchars = 'eob: '
 
+-- Treesitter-based folding. Set here (not inside the treesitter plugin's
+-- config()) so it's in place before any buffer is read, regardless of
+-- plugin load order. Uses Neovim's native foldexpr (nvim 0.10+), not the
+-- legacy 'nvim_treesitter#foldexpr()' — the legacy one is known to get out
+-- of sync on injected-language buffers (e.g. Quarto code cells) after edits,
+-- which showed up as folds closing unpredictably on save or when opening a
+-- new line.
+vim.o.foldmethod = 'expr'
+vim.o.foldexpr = 'v:lua.vim.treesitter.foldexpr()'
+vim.o.foldenable = true
+vim.o.foldlevelstart = 99 -- start with all folds open; close with zc/zM as needed
+
 -- Python provider for the Neovim Python host (used by molten-nvim, etc.)
 -- Dedicated micromamba env, separate from any per-project env: `micromamba create -n nvim-host -c conda-forge python pynvim jupyter_client -y`
 local nvim_host_python = vim.fn.expand '~/micromamba/envs/nvim-host/bin/python'
