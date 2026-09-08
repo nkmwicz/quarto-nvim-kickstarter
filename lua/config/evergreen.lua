@@ -41,14 +41,17 @@ local function roman_to_int(s)
 end
 
 --- Parse a `page:` locator into a sortable key {kind, value}: kind 0 = roman
---- (front matter, sorts first), 1 = arabic page/range (sorts by start page),
---- 2 = anything else (sorts last).
+--- (front matter, sorts first), 1 = arabic page/range (sorts by start
+--- page), 2 = a non-page locator scheme that still carries a number (epub
+--- "para. 35", Kindle "loc. 1204", ...) — sorts numerically within its own
+--- bucket rather than colliding with every other note on a single value,
+--- 3 = blank or genuinely unparseable (sorts last).
 local function locator_key(raw)
   if not raw or raw == '' then
-    return { 2, 0 }
+    return { 3, 0 }
   end
-  local s = tostring(raw):gsub('%s+', '')
-  local start = s:match '^([^%-]+)' or s
+  local compact = tostring(raw):gsub('%s+', '')
+  local start = compact:match '^([^%-]+)' or compact
   local num = tonumber(start)
   if num then
     return { 1, num }
@@ -60,7 +63,26 @@ local function locator_key(raw)
       return { 0, v }
     end
   end
-  return { 2, 0 }
+  local n = compact:match '(%d+)'
+  if n then
+    return { 2, tonumber(n) }
+  end
+  return { 3, 0 }
+end
+
+--- Human-readable label for a `page:` locator. Page numbers/ranges and
+--- roman front-matter numerals get a "p. " prefix; a non-page scheme
+--- (kind 2/3 above) is already self-describing as typed — "para. 35",
+--- "loc. 1204" — so prepending "p. " to those would read as "p. para. 35".
+local function locator_label(raw)
+  if not raw or raw == '' then
+    return nil
+  end
+  local kind = locator_key(raw)[1]
+  if kind == 0 or kind == 1 then
+    return 'p. ' .. raw
+  end
+  return tostring(raw)
 end
 
 --- Extract the link target from a wikilink string like "[[Title]]" or
@@ -293,7 +315,7 @@ function M.reading_view()
       last_chapter = false
     end
     local page = note:get_field 'page'
-    local label = page and ('p. ' .. page) or '(no page)'
+    local label = locator_label(page) or '(no page)'
     table.insert(lines, ('## %s — %s'):format(label, display_title(note)))
     jump_targets[#lines] = tostring(note.path)
     table.insert(lines, '')
