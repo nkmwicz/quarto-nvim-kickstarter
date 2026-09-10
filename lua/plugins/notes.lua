@@ -57,6 +57,7 @@ return {
       { '<leader>nnc', function() require('config.evergreen').new_child_note() end, desc = 'evergreen new [n]ote: [c]hild (linked to source)' },
       { '<leader>nns', function() require('config.evergreen').new_source_note() end, desc = 'evergreen new [n]ote: [s]ource' },
       { '<leader>nR', function() require('config.evergreen').rename_to_title_slug() end, desc = 'evergreen [R]ename file to match title slug' },
+      { '<leader>nl', function() require('config.evergreen').suggest_concept_links() end, desc = 'evergreen suggest concept [l]inks for current note' },
     },
     ---@module 'obsidian'
     ---@type obsidian.config

@@ -615,6 +615,197 @@ function M.new_child_note()
   end)
 end
 
+--- Parses `_scripts/suggest-concept-links.sh`'s stdout for the block
+--- belonging to `id`: a line exactly equal to `id`, followed by its
+--- indented `  -> [[concept]]  (filename: ..., overlap ...; content
+--- similarity: ...)` rows (see that script for the exact format). A blank
+--- line (or any other non-indented line) ends the block, matching how the
+--- script separates one child note's suggestions from the next.
+local function parse_suggestions(lines, id)
+  local results = {}
+  local in_block = false
+  for _, line in ipairs(lines) do
+    if line == id then
+      in_block = true
+    elseif in_block then
+      if line:match '^%s' then
+        local concept, shared, overlap, similarity =
+          line:match '%[%[(.-)%]%]%s*%(filename: (.-), overlap (.-); content similarity: (.-)%)'
+        if concept then
+          table.insert(results, { id = concept, shared = shared, overlap = overlap, similarity = similarity })
+        end
+      else
+        break
+      end
+    end
+  end
+  return results
+end
+
+--- Runs `_scripts/suggest-concept-links.sh` (id/alias token-overlap, then
+--- TF-IDF cosine similarity over full body text — see that script) scoped
+--- to the current note, and offers to insert a picked concept link. This is
+--- the same algorithm `suggest-concept-links.sh` already runs as a
+--- whole-vault batch report; this just filters its output down to "this
+--- note" and makes it a synchronous in-nvim lookup, for the manual check
+--- CLAUDE.md's Linking discipline section calls out ("check whether the
+--- claim already has a home... before minting a new one") — there was no
+--- in-the-moment way to run it before this.
+function M.suggest_concept_links()
+  local bufnr = vim.api.nvim_get_current_buf()
+  local path = vim.api.nvim_buf_get_name(bufnr)
+  if path == '' then
+    vim.notify('evergreen: buffer is not a file', vim.log.levels.WARN)
+    return
+  end
+  local root = M.vault_root(vim.fs.dirname(path))
+  if not root then
+    vim.notify('evergreen: not inside an Obsidian vault', vim.log.levels.WARN)
+    return
+  end
+  local script = vim.fs.joinpath(root, '_scripts', 'suggest-concept-links.sh')
+  if vim.fn.filereadable(script) == 0 then
+    vim.notify('evergreen: no _scripts/suggest-concept-links.sh in this vault', vim.log.levels.WARN)
+    return
+  end
+
+  -- The script reads files off disk, same as every other _scripts/*.sh in
+  -- this vault — warn rather than silently showing stale results, but
+  -- don't auto-save (that's the user's call, not ours to make quietly).
+  if vim.bo[bufnr].modified then
+    vim.notify(
+      'evergreen: buffer has unsaved changes — suggestions reflect the last saved version',
+      vim.log.levels.WARN
+    )
+  end
+
+  -- Matches vault-doctor.awk's own id fallback (id_out = (id == "") ?
+  -- fname_out : id), so this looks up the same key the awk scripts use.
+  local id = frontmatter_field(bufnr, 'id') or vim.fn.fnamemodify(path, ':t:r')
+
+  -- Via `bash` explicitly, not exec'd directly: the script has no +x bit
+  -- (like the other _scripts/*.sh in this vault), and setting one is a
+  -- vault-file change this feature has no business making on its own.
+  local ok, lines = pcall(vim.fn.systemlist, { 'bash', script, root })
+  if not ok or vim.v.shell_error ~= 0 then
+    vim.notify('evergreen: suggest-concept-links.sh failed', vim.log.levels.ERROR)
+    return
+  end
+
+  -- No suggestions covers both "genuinely no candidates" and "this note
+  -- isn't eligible at all" — suggest-concept-links.awk only emits rows for
+  -- child notes (against concept notes) and for concept notes where at
+  -- least one side is an entity note (person/event) — same message either
+  -- way, both mean "nothing to do here."
+  local suggestions = parse_suggestions(lines, id)
+  if #suggestions == 0 then
+    vim.notify('evergreen: no concept-link suggestions for this note', vim.log.levels.INFO)
+    return
+  end
+
+  -- Inserts [[chosen.id]] into bufnr, or reports it's already there.
+  local function insert_link(chosen)
+    local link_text = ('[[%s]]'):format(chosen.id)
+    local body_lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+    for _, l in ipairs(body_lines) do
+      if l == link_text then
+        vim.notify('evergreen: already linked to ' .. chosen.id, vim.log.levels.INFO)
+        return
+      end
+    end
+
+    -- Insert as its own line right after the frontmatter, after any
+    -- existing contiguous blank/bare-[[link]] lines directly below it —
+    -- CLAUDE.md: the concept link goes right after frontmatter, before
+    -- the bullets. A note with no existing concept link gets one right
+    -- after frontmatter; a note with one or more already gets this one
+    -- appended to that block rather than scattered into the bullets below.
+    local insert_at = 0
+    if body_lines[1] == '---' then
+      for i = 2, #body_lines do
+        if body_lines[i] == '---' then
+          insert_at = i
+          break
+        end
+      end
+    end
+    local i = insert_at + 1
+    while body_lines[i] and (body_lines[i] == '' or body_lines[i]:match '^%[%[.-%]%]$') do
+      i = i + 1
+    end
+    insert_at = i - 1
+    vim.api.nvim_buf_set_lines(bufnr, insert_at, insert_at, false, { link_text })
+  end
+
+  -- A dedicated Telescope picker instead of vim.ui.select: this config
+  -- routes vim.ui.select through telescope-ui-select.nvim's `get_dropdown()`
+  -- theme (see plugins/ui.lua), which hardcodes `previewer = false` with no
+  -- per-call override — confirmed by reading that extension's source
+  -- (telescope/_extensions/ui-select.lua): the previewer comes from the
+  -- static setup-time opts, never from anything passed to the individual
+  -- vim.ui.select() call. <leader>ff/<leader>fg get a preview because they
+  -- call Telescope's builtin pickers directly (conf.grep_previewer(opts),
+  -- same as find_files/live_grep use internally), not through that
+  -- extension — so this does the same, to get the same preview behavior.
+  local pickers = require 'telescope.pickers'
+  local finders = require 'telescope.finders'
+  local conf = require('telescope.config').values
+  local actions = require 'telescope.actions'
+  local action_state = require 'telescope.actions.state'
+  local previewers = require 'telescope.previewers'
+  local from_entry = require 'telescope.from_entry'
+
+  local opts = {}
+
+  -- Same shape as Telescope's own `previewers.cat` (the file previewer
+  -- conf.grep_previewer resolves to for find_files/live_grep — see the
+  -- comment above), with one addition: these are prose notes, not code, so
+  -- wrap the preview window instead of leaving Telescope's default
+  -- no-wrap (which is right for code, wrong for reading a note's bullets).
+  local wrapped_previewer = previewers.new_buffer_previewer {
+    title = 'File Preview',
+    get_buffer_by_name = function(_, entry) return from_entry.path(entry, false, false) end,
+    define_preview = function(self, entry)
+      local p = from_entry.path(entry, true, false)
+      if p == nil or p == '' then
+        return
+      end
+      conf.buffer_previewer_maker(p, self.state.bufnr, { bufname = self.state.bufname, winid = self.state.winid })
+      vim.wo[self.state.winid].wrap = true
+    end,
+  }
+  pickers
+    .new(opts, {
+      prompt_title = 'Suggested concept links',
+      finder = finders.new_table {
+        results = suggestions,
+        entry_maker = function(s)
+          local file = vim.fs.joinpath(root, s.id .. '.md')
+          return {
+            value = s,
+            display = ('%s  (overlap %s, similarity %s: %s)'):format(s.id, s.overlap, s.similarity, s.shared),
+            ordinal = s.id .. ' ' .. s.shared,
+            path = file,
+            filename = file,
+          }
+        end,
+      },
+      sorter = conf.generic_sorter(opts),
+      previewer = wrapped_previewer,
+      attach_mappings = function(prompt_bufnr)
+        actions.select_default:replace(function()
+          local entry = action_state.get_selected_entry()
+          actions.close(prompt_bufnr)
+          if entry then
+            insert_link(entry.value)
+          end
+        end)
+        return true
+      end,
+    })
+    :find()
+end
+
 -- --- Auto-detect capture on [[link]]-triggered note creation --------------
 --
 -- Every note creation (`[[link]]` "create new note?", `:Obsidian new`,
