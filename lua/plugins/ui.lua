@@ -129,8 +129,20 @@ return {
       table.insert(vimgrep_arguments, '--glob')
       table.insert(vimgrep_arguments, '!docs/*')
 
+      -- Cheat sheet for telescope-fzf-native's own query syntax (see its
+      -- README) — space = AND, `'word` = exact substring, `^`/`$` =
+      -- anchored, `!` = negate, `|` = OR. Set as the global `results_title`
+      -- default so it's a standing reminder rather than a behavior change.
+      -- With `prompt_position = 'top'` below, layout_strategies.lua puts a
+      -- string `results_title` on the *bottom* border of the results
+      -- window (`{ pos = 'S', text = ... }`, layout_strategies.lua:911-919)
+      -- — the literal bottom edge of the picker in this layout — which is
+      -- exactly where this belongs, natively, no window-API hackery needed.
+      local FZF_HINT = " ' exact  ^prefix  suffix$  !not  a | b = or   (space = and) "
+
       telescope.setup {
         defaults = {
+          results_title = FZF_HINT,
           buffer_previewer_maker = new_maker,
           vimgrep_arguments = vimgrep_arguments,
           file_ignore_patterns = {
@@ -213,6 +225,15 @@ return {
       telescope.load_extension 'dap'
       -- telescope.load_extension 'zotero'  -- disabled: using .bib-file picker instead
       telescope.load_extension 'bibtex'
+
+      -- Telescope has no defaults.preview.wrap option; the previewer-loaded
+      -- autocmd is the documented way to turn line wrap on in the preview pane.
+      vim.api.nvim_create_autocmd('User', {
+        pattern = 'TelescopePreviewerLoaded',
+        callback = function()
+          vim.wo.wrap = true
+        end,
+      })
 
       -- .bib-file-backed Zotero picker. Reads from a BBT auto-export instead of SQLite.
       -- Mirrors the telescope-zotero workflow: inserts @citekey at cursor and appends
