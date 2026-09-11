@@ -244,6 +244,61 @@ local insert_ojs_chunk = function()
   insert_code_chunk 'ojs'
 end
 
+-- Reflows the lines currently marked '< / '> (a visual selection, or a
+-- text object like `ip` already applied) to one sentence per line -
+-- "semantic linefeeds": each sentence becomes its own git-diffable line,
+-- while Markdown/Quarto's actual paragraph separator (a real blank line,
+-- left untouched since only the marked range is ever touched) still
+-- renders identically. `:join` (not `J`) collapses the range's existing
+-- line wraps into one line first, with smart spacing; the substitute
+-- then re-splits on sentence-ending punctuation followed by whitespace,
+-- inserting a real newline (`\r` on the replacement side) at each split.
+local function reflow_marks_to_sentences()
+  local start_line = vim.fn.line "'<"
+  local end_line = vim.fn.line "'>"
+  if end_line > start_line then
+    vim.cmd(string.format('%d,%djoin', start_line, end_line))
+  end
+  vim.cmd(start_line .. [[s/\([.!?]\)\s\+/\1\r/g]])
+end
+
+-- Normal-mode entry point: selects the current paragraph (`vip`) as if
+-- typed by hand, exits visual mode (so '< '> are finalized the same way
+-- a manual selection would leave them), then reflows it.
+local function reflow_paragraph_to_sentences()
+  vim.cmd 'normal! vip\27'
+  reflow_marks_to_sentences()
+end
+
+-- Registered as real keymaps directly, not via wk.add() below: wk.add()
+-- only queues a spec into which-key's own internal registry/trigger
+-- tree (confirmed in which-key/init.lua - M.add is just `table.insert(
+-- M._queue, ...)`), not a real `vim.keymap.set` call - which-key's own
+-- popup still discovers and displays real keymaps via
+-- `nvim_get_keymap`/`nvim_buf_get_keymap` (see which-key/buf.lua), so
+-- this loses nothing from the popup while making dispatch verifiable.
+--
+-- The visual-mode mapping below deliberately does NOT pass
+-- reflow_marks_to_sentences as a Lua function value directly (confirmed
+-- by direct testing: `'<`/`'>` read as 0/unset the moment a Lua-callback
+-- RHS runs synchronously off a visual-mode keypress - the marks aren't
+-- committed yet at that point, so a fresh selection's first press
+-- silently no-ops on line 0 and only "works" on a second press once
+-- something coincidentally leaves the marks populated). Routing through
+-- a `:<C-u>lua ...<CR>` command-line RHS instead is the long-standing,
+-- reliable idiom for this exact problem (same one vim-surround/
+-- vim-commentary use) - pressing `:` from Visual mode is what natively,
+-- synchronously converts the selection into the `'<,'>` marks before
+-- any of the command line's own content runs; `<C-u>` just clears the
+-- `'<,'>` range text Vim auto-inserts on that command line, since we
+-- don't want it literally, only the marks it sets as a side effect.
+_G.__reflow_marks_to_sentences = reflow_marks_to_sentences
+
+vim.keymap.set('n', '<leader>ss', reflow_paragraph_to_sentences,
+  { desc = '[s]entence-per-line reflow (current paragraph)' })
+vim.keymap.set('x', '<leader>ss', ':<C-u>lua __reflow_marks_to_sentences()<CR>',
+  { desc = '[s]entence-per-line reflow (selection)' })
+
 --show kepbindings with whichkey
 --add your own here if you want them to
 --show up in the popup as well
