@@ -29,7 +29,7 @@ All plugins live under `lua/plugins/` and are auto-discovered by lazy.nvim:
 | `quarto.lua` | quarto-nvim, jupytext (ipynb→qmd), vim-slime (REPL), img-clip, nabla (math preview), molten-nvim (Jupyter cell output, `<leader>m…`; renders images via image.nvim) |
 | `completion.lua` | nvim-cmp with many sources, GitHub Copilot (auto-trigger), CopilotChat |
 | `editing.lua` | conform.nvim (format on save), nvim-surround, Comment.nvim, neogen, nvim-prose (word count) |
-| `treesitter.lua` | Treesitter with textobjects; Tab toggles folds |
+| `treesitter.lua` | nvim-treesitter on its `main` branch (the rewrite, not the frozen `master`) + textobjects; Tab toggles folds. See Treesitter below. |
 | `ui.lua` | Telescope, oil.nvim, nvim-tree, which-key, toggleterm, headlines.nvim, image.nvim (markdown-link inline preview integration disabled; still used as Molten's image backend) |
 | `debugging.lua` | nvim-dap + dapui + neotest (Python) |
 
@@ -70,6 +70,14 @@ Keymaps are in `lua/config/keymap.lua` and loaded by which-key's config function
 - `<m-i>` / `<m-I>` (insert/normal) — insert Python chunk
 - `<leader>qp` — Quarto preview; `<leader>qa` — activate quarto-nvim
 - vim-slime target is always a Neovim terminal (`vim.g.slime_target = 'neovim'`)
+
+## Treesitter
+
+nvim-treesitter's `main` branch only installs parsers and ships queries — there is no `configs.setup{}` module system. `lua/plugins/treesitter.lua` wires everything up by hand: a `FileType` autocmd calls `vim.treesitter.start()`, sets the treesitter `indentexpr` where an `indents` query exists, and sets buffer-local textobject keymaps (`af`/`if`/`ac`/`ic`, `]m`/`[m`/`]]`/`[[` etc.) where a `textobjects` query exists — buffer-local and set after the ftplugin so they beat e.g. the built-in python ftplugin's `]]`. Parsers in `ensure_installed` install at startup; any other filetype's parser installs on first open (the old `auto_install`). Incremental selection is Neovim 0.12's built-in visual `an`/`in`/`]n`/`[n`; the old `gnn`/`grn`/`grm` keys are kept as aliases (`grc` scope-selection is gone). Folding was already native (`config.global`). bigfile.nvim is respected via its `b:bigfile_disable_treesitter` flag. `norg` isn't supported on `main` (neorg is disabled anyway).
+
+Per-machine requirements: **Neovim 0.12+** (the spec has `cond` on it and errors loudly otherwise), a **tree-sitter CLI 0.26.1+** — Mason's `tree-sitter-cli` (apt's is too old; the spec prepends `mason/bin` to `PATH` so Mason's copy wins, and on a fresh machine waits for `MasonToolsUpdateCompleted` before building parsers), plus a C compiler, `curl`, `tar`. Parsers compile into `stdpath('data')/site/parser`, per machine. `:checkhealth kickstart` checks all of this. Machines are provisioned by `~/dotfiles/install.sh`.
+
+`lazy-lock.json` is committed, so every machine gets the same plugin versions (`:Lazy restore`); a fresh clone of a plugin without a lockfile gets whatever its default branch is that day, which is how the `master`→`main` switch broke this config.
 
 ## image.nvim
 

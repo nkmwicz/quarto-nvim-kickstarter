@@ -12,7 +12,8 @@ local check_version = function()
     return
   end
 
-  if vim.version.cmp(vim.version(), { 0, 9, 4 }) >= 0 then
+  -- nvim-treesitter's `main` branch (lua/plugins/treesitter.lua) needs 0.12
+  if vim.version.cmp(vim.version(), { 0, 12, 0 }) >= 0 then
     vim.health.ok(string.format("Neovim version is: '%s'", tostring(vim.version())))
   else
     vim.health.error(string.format("Neovim out of date: '%s'. Upgrade to latest stable or nightly", tostring(vim.version())))
@@ -21,7 +22,7 @@ end
 
 local check_external_reqs = function()
   -- Basic utils: `git`, `make`, `unzip`
-  for _, exe in ipairs { 'git', 'make', 'unzip', 'rg' } do
+  for _, exe in ipairs { 'git', 'make', 'unzip', 'rg', 'cc', 'curl', 'tar' } do
     local is_executable = vim.fn.executable(exe) == 1
     if is_executable then
       vim.health.ok(string.format("Found executable: '%s'", exe))
@@ -31,6 +32,25 @@ local check_external_reqs = function()
   end
 
   return true
+end
+
+-- nvim-treesitter (main) compiles every parser with the tree-sitter CLI.
+-- Mason's `tree-sitter-cli` is the intended copy; apt's lags behind.
+local check_tree_sitter_cli = function()
+  local path = vim.fn.exepath 'tree-sitter'
+  if path == '' then
+    vim.health.error 'tree-sitter CLI not found. Install it with :MasonInstall tree-sitter-cli'
+    return
+  end
+  local out = vim.fn.system { 'tree-sitter', '--version' }
+  local v = vim.version.parse(out:match '(%d+%.%d+%.%d+)' or '')
+  if v and vim.version.ge(v, '0.26.1') then
+    vim.health.ok(string.format('tree-sitter CLI %s (%s)', tostring(v), path))
+  else
+    vim.health.error(
+      string.format("tree-sitter CLI at %s is %s; need 0.26.1+. Use Mason's copy (:MasonInstall tree-sitter-cli)", path, v and tostring(v) or 'unknown')
+    )
+  end
 end
 
 local function maybe_system(command)
@@ -75,7 +95,7 @@ local check_image_dependencies = function()
 
   if backend == 'kitty' then
     -- check if kitty is available
-    print('kitty')
+    print 'kitty'
     local out = shell { 'kitty', '--version' }
     if out == nil then
       vim.health.warn 'kitty is not available'
@@ -148,6 +168,7 @@ return {
 
     check_version()
     check_external_reqs()
+    check_tree_sitter_cli()
     check_image_dependencies()
   end,
 }
