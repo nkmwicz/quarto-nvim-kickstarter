@@ -2,7 +2,10 @@
 
 Companion to <https://github.com/quarto-dev/quarto-nvim>.
 
-This requires Neovim >= **v0.9.5** (https://github.com/neovim/neovim/releases/tag/stable)
+This requires Neovim >= **v0.12** (https://github.com/neovim/neovim/releases/tag/stable), for nvim-treesitter's `main` branch.
+Treesitter parsers are compiled locally, which needs a C compiler, `curl`, `tar` and the tree-sitter CLI >= 0.26.1.
+The CLI is installed automatically through Mason; don't use apt's `tree-sitter-cli`, which is too old.
+Run `:checkhealth kickstart` to check all of this.
 
 ## Videos
 
@@ -40,7 +43,6 @@ sudo apt install imagemagick
 sudo apt install libmagickwand-dev
 sudo apt install liblua5.1-0-dev
 sudo apt install luajit
-sudo apt install tree-sitter-cli
 ```
 
 Manually installing luarocks and the magick rock is no longer required, this is handled by [luarocks.nvim](https://github.com/vhyrro/luarocks.nvim).
