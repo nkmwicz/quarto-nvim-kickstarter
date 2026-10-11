@@ -231,8 +231,15 @@ return {
           map('gS', vim.lsp.buf.document_symbol, '[g]o so [S]ymbols')
           map('gD', vim.lsp.buf.type_definition, '[g]o to type [D]efinition')
           map('gd', vim.lsp.buf.definition, '[g]o to [d]efinition')
-          map('<leader>k', vim.lsp.buf.hover, '<leader>[k] hover documentation')
-          map('gh', vim.lsp.buf.signature_help, '[g]o to signature [h]elp')
+          -- border passed per call: since 0.11 these no longer go through
+          -- vim.lsp.handlers, so overriding the handlers has no effect
+          local border = require('misc.style').border
+          map('<leader>k', function()
+            vim.lsp.buf.hover { border = border }
+          end, '<leader>[k] hover documentation')
+          map('gh', function()
+            vim.lsp.buf.signature_help { border = border }
+          end, '[g]o to signature [h]elp')
           map('gI', vim.lsp.buf.implementation, '[g]o to [I]mplementation')
           map('gr', vim.lsp.buf.references, '[g]o to [r]eferences')
           map('[d', function()
@@ -261,9 +268,6 @@ return {
         allow_incremental_sync = true,
         debounce_text_changes = 150,
       }
-
-      vim.lsp.handlers['textDocument/hover'] = vim.lsp.with(vim.lsp.handlers.hover, { border = require('misc.style').border })
-      vim.lsp.handlers['textDocument/signatureHelp'] = vim.lsp.with(vim.lsp.handlers.signature_help, { border = require('misc.style').border })
 
       local capabilities = vim.lsp.protocol.make_client_capabilities()
       capabilities = vim.tbl_deep_extend('force', capabilities, require('cmp_nvim_lsp').default_capabilities())

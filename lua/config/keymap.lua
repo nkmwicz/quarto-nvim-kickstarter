@@ -128,7 +128,9 @@ imap('<C-s>', '<esc>:update<cr><esc>')
 nmap('<C-s>', '<cmd>:update<cr><esc>')
 
 -- move  up and down softwrapped text
-nmap('<leader>k', '<cmd>lua vim.lsp.buf.hover()<cr>')
+nmap('<leader>k', function()
+  vim.lsp.buf.hover { border = require('misc.style').border }
+end)
 nmap('J', 'gj')
 nmap('K', 'gk')
 
