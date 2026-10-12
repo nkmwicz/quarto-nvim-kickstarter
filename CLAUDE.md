@@ -70,6 +70,7 @@ Keymaps are in `lua/config/keymap.lua` and loaded by which-key's config function
 - `<m-i>` / `<m-I>` (insert/normal) — insert Python chunk
 - `<leader>qp` — Quarto preview; `<leader>qa` — activate quarto-nvim
 - vim-slime target is always a Neovim terminal (`vim.g.slime_target = 'neovim'`)
+- `<leader>mi` — start Molten on the project's Python env (`lua/config/molten.lua`): the nearest uv `.venv` (or `$VIRTUAL_ENV`), else the active micromamba env (`$CONDA_PREFIX`), else a picker over micromamba envs (base and `nvim-host` excluded). Installs `ipykernel` if missing (`uv pip install` / `micromamba install`) and registers a `venv-<project>` / `mamba-<env>` kernelspec if needed, then `:MoltenInit <kernel>`. `<leader>mI` is plain `:MoltenInit` (pick a registered kernel). Molten is a Python remote plugin: if its commands are "not an editor command", run `:UpdateRemotePlugins` with Molten loaded and restart.
 
 ## Treesitter
 

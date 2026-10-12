@@ -164,7 +164,8 @@ return {
       vim.g.molten_auto_open_output = false
     end,
     keys = {
-      { '<leader>mi', ':MoltenInit<cr>', desc = '[m]olten [i]nit' },
+      { '<leader>mi', function() require('config.molten').init() end, desc = '[m]olten [i]nit (project .venv)' },
+      { '<leader>mI', ':MoltenInit<cr>', desc = '[m]olten [I]nit (pick kernel)' },
       {
         '<leader>mv',
         ':<C-u>MoltenEvaluateVisual<cr>',
