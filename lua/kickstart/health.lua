@@ -53,6 +53,18 @@ local check_tree_sitter_cli = function()
   end
 end
 
+-- French grammar checking (lua/config/grammalecte.lua) runs on the system
+-- Python, where apt's python3-grammalecte lives.
+local check_grammalecte = function()
+  local python = vim.g.grammalecte_python or '/usr/bin/python3'
+  local res = vim.system({ python, '-c', 'import grammalecte' }):wait()
+  if res.code == 0 then
+    vim.health.ok(string.format('grammalecte importable from %s', python))
+  else
+    vim.health.warn(string.format('grammalecte not importable from %s. Install it with: sudo apt install python3-grammalecte', python))
+  end
+end
+
 local function maybe_system(command)
   local success, obj = pcall(vim.system, command, { text = true })
   if not success then
@@ -169,6 +181,7 @@ return {
     check_version()
     check_external_reqs()
     check_tree_sitter_cli()
+    check_grammalecte()
     check_image_dependencies()
   end,
 }

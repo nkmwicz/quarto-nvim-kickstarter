@@ -1,0 +1,234 @@
+"""Grammalecte bridge for lua/config/grammalecte.lua.
+
+Long-running: reads one JSON request per line on stdin, writes one JSON
+response per line on stdout. Only French text in the buffer is checked --
+the manuscripts are English prose quoting French, and Grammalecte run over
+English flags nearly every line.
+
+Request:  {"id": n, "text": "<whole buffer>", "ignore": ["rule_id", ...]}
+Response: {"id": n, "errors": [{"lnum", "col", "end_lnum", "end_col",
+           "rule", "message", "suggestions"}]}   (0-based, byte columns)
+
+Which text counts as French:
+  - the whole document, if its YAML front matter says `lang: fr`
+  - `::: {lang=fr}` fenced divs and `[...]{lang=fr}` spans (Pandoc markup)
+  - otherwise auto-detected: quotations, *italic* titles, and sentences
+    whose function words are mostly French
+
+Grammalecte's spellchecker is never used (Neovim's spelllang=en,fr does
+spelling, and it would flag every early-modern spelling). French embedded
+in English prose follows English typography, so typography rules only run
+in `lang: fr` documents.
+
+Ignore directives (HTML comments, so invisible in rendered output):
+  <!-- grammalecte:ignore -->              whole line
+  <!-- grammalecte:ignore RULE ... -->     those rules on this line
+  <!-- grammalecte:ignore-file -->         whole file
+  <!-- grammalecte:ignore-file RULE ... -->  those rules in this file
+A line directive applies to the line it's on, or to the next line if it
+stands alone on its own line.
+"""
+
+import json
+import re
+import sys
+
+try:
+    import grammalecte
+except ImportError as e:
+    print(json.dumps({"error": f"cannot import grammalecte ({e}); sudo apt install python3-grammalecte"}), flush=True)
+    sys.exit(1)
+
+gce = grammalecte.GrammarChecker("fr").getGCEngine()
+
+# parse(dOptions=...) replaces the option set rather than merging, so both
+# sets start from the defaults.
+# Always off: whitespace (Markdown wrapping/indentation), apostrophes (Pandoc
+# smartens them), inclusive-writing suggestions (anachronistic here).
+BASE_OFF = dict(gce.getDefaultOptions(), esp=False, tab=False, apos=False, eepi=False)
+# Also off for French embedded in English: typography, capitalisation and
+# number formatting follow the host language.
+EMBEDDED_OFF = dict(BASE_OFF, typo=False, nbsp=False, unit=False, num=False, maj=False, minis=False, nf=False)
+
+FR_WORDS = set(
+    "le la les des du de un une et est que qui ne pas dans pour par sur au aux ce cette ces ceste son sa ses "
+    "il elle ils nous vous je leur leurs avec sont ont été esté fait faict roy plus mais ou où en y".split()
+)
+EN_WORDS = set("the of and to in that is was for with as his he by it be this are were from had which on at an their they not but have".split())
+WORD_RE = re.compile(r"[^\W\d_]+(?:'[^\W\d_]+)?")
+
+
+def looks_french(s):
+    words = [w.lower() for w in WORD_RE.findall(s)]
+    if len(words) < 4:
+        return False
+    fr = sum(w in FR_WORDS for w in words)
+    en = sum(w in EN_WORDS for w in words)
+    return fr >= 2 and fr > 2 * en
+
+
+def blank(m):
+    """Replacement that keeps offsets: every non-newline char becomes a space."""
+    return re.sub(r"[^\n]", " ", m.group())
+
+
+# Markup that is never prose. Masked (not removed) so offsets stay valid.
+MASKS = [
+    re.compile(r"^(```|~~~).*?^\1[^\n]*$", re.S | re.M),  # code cells
+    re.compile(r"<!--.*?-->", re.S),  # binder/research metadata, harper:ignore
+    re.compile(r"\{\{<.*?>\}\}", re.S),  # Quarto shortcodes
+    re.compile(r"`[^`\n]+`"),  # inline code
+    re.compile(r"\$\$.*?\$\$|\$[^$\n]+\$", re.S),  # math
+    re.compile(r"\[[^\]\n]*@[^\]\n]*\]|@[\w:.-]+"),  # citations
+    re.compile(r"\]\([^)\n]*\)"),  # link targets
+    re.compile(r"\[\^[^\]\n]*\]"),  # footnote refs
+    re.compile(r"https?://\S+"),
+    re.compile(r"^[ \t]*(?:[-*+]|\d+[.)]|>+|#+)[ \t]+", re.M),  # list/quote/heading markers
+]
+
+DIRECTIVE = re.compile(r"<!--\s*grammalecte:(ignore-file|ignore)\b(.*?)-->")
+FRONT_MATTER = re.compile(r"\A---\n.*?\n(?:---|\.\.\.)\n", re.S)
+INLINE_SPAN = re.compile(r"\[([^\]\n]+)\]\{[^}\n]*\blang=\"?fr[\w-]*\"?[^}\n]*\}")
+DIV_FENCE = re.compile(r"^(:{3,})[ \t]*(\S.*)?$", re.M)
+QUOTED = re.compile(r'"([^"\n]+)"|“([^”]+)”|«([^»]+)»|(?<!\*)\*([^*\n]+)\*(?!\*)|(?<!\w)_([^_\n]+)_(?!\w)')
+SENTENCE_END = re.compile(r"(?<=[.!?])\s+")
+
+
+def french_spans(text):
+    """Returns (masked_text, [(start, end, options)]) in character offsets."""
+    fm = FRONT_MATTER.match(text)
+    doc_french = bool(fm and re.search(r"^lang:\s*[\"']?fr", fm.group(), re.M))
+    if fm:
+        text = blank(fm) + text[fm.end() :]
+
+    spans = []
+    # Explicit [..]{lang=fr} spans: record the inner text, and keep it out of
+    # auto-detection (`auto` is the text that auto-detection sees).
+    for m in INLINE_SPAN.finditer(text):
+        spans.append((m.start(1), m.end(1), EMBEDDED_OFF))
+    auto = INLINE_SPAN.sub(blank, text)
+    # In the checked text, mask just the brackets and attribute block.
+    text = INLINE_SPAN.sub(lambda m: " " + m.group(1) + " " * (len(m.group()) - len(m.group(1)) - 1), text)
+
+    for rx in MASKS:
+        text = rx.sub(blank, text)
+        auto = rx.sub(blank, auto)
+
+    if doc_french:
+        return text, [(0, len(text), BASE_OFF)]
+
+    # ::: {lang=fr} divs, with nesting. Fence lines are masked afterwards.
+    stack, fr_ranges = [], []
+    for m in DIV_FENCE.finditer(text):
+        if m.group(2):
+            stack.append((m.end(), "lang=fr" in m.group(2).replace('"', "")))
+        elif stack:
+            start, is_fr = stack.pop()
+            if is_fr and not any(s <= start < e for s, e in fr_ranges):
+                fr_ranges.append((start, m.start()))
+    text = DIV_FENCE.sub(blank, text)
+    auto = DIV_FENCE.sub(blank, auto)
+    spans += [(s, e, EMBEDDED_OFF) for s, e in fr_ranges]
+    for s, e in fr_ranges:
+        auto = auto[:s] + re.sub(r"[^\n]", " ", auto[s:e]) + auto[e:]
+
+    # Auto-detect in everything else, paragraph by paragraph.
+    pos = 0
+    for para in re.split(r"(\n[ \t]*\n)", auto):
+        start = pos
+        pos += len(para)
+        if not para.strip():
+            continue
+        if looks_french(para) and not QUOTED.search(para):
+            spans.append((start, start + len(para), EMBEDDED_OFF))
+            continue
+        for m in QUOTED.finditer(para):
+            g = next(i for i in range(1, 6) if m.group(i) is not None)
+            if looks_french(m.group(g)):
+                spans.append((start + m.start(g), start + m.end(g), EMBEDDED_OFF))
+        rest = QUOTED.sub(blank, para)
+        off = 0
+        for sent in SENTENCE_END.split(rest):
+            i = rest.index(sent, off)
+            off = i + len(sent)
+            if looks_french(sent):
+                spans.append((start + i, start + i + len(sent), EMBEDDED_OFF))
+    return text, spans
+
+
+def to_xy(text):
+    """Char offset -> (0-based line, byte column) converter for `text`."""
+    starts = [0] + [m.end() for m in re.finditer("\n", text)]
+
+    def xy(off):
+        lo, hi = 0, len(starts) - 1
+        while lo < hi:
+            mid = (lo + hi + 1) // 2
+            if starts[mid] <= off:
+                lo = mid
+            else:
+                hi = mid - 1
+        return lo, len(text[starts[lo] : off].encode())
+
+    return xy
+
+
+ALL = None  # line-ignore value meaning "every rule"
+
+
+def directives(text):
+    """Returns (file_ignore, line_ignores): file_ignore is ALL or a set of
+    rule ids; line_ignores maps 0-based line -> ALL or a set of rule ids."""
+    file_ignore, line_ignores = set(), {}
+    lines = text.split("\n")
+    for i, line in enumerate(lines):
+        for m in DIRECTIVE.finditer(line):
+            rules = set(m.group(2).split())
+            if m.group(1) == "ignore-file":
+                file_ignore = ALL if not rules or file_ignore is ALL else file_ignore | rules
+                continue
+            target = i + 1 if not DIRECTIVE.sub("", line).strip() else i
+            prev = line_ignores.get(target, set())
+            line_ignores[target] = ALL if not rules or prev is ALL else prev | rules
+    return file_ignore, line_ignores
+
+
+def check(text, ignore):
+    file_ignore, line_ignores = directives(text)
+    if file_ignore is ALL:
+        return []
+    ignore = ignore | file_ignore
+    masked, spans = french_spans(text)
+    xy = to_xy(text)
+    errors = []
+    for start, end, opts in spans:
+        chunk = masked[start:end].replace("\n", " ")
+        for e in gce.parse(chunk, "FR", dOptions=opts):
+            if e["sRuleId"] in ignore:
+                continue
+            lnum, col = xy(start + e["nStart"])
+            if lnum in line_ignores and (line_ignores[lnum] is ALL or e["sRuleId"] in line_ignores[lnum]):
+                continue
+            end_lnum, end_col = xy(start + e["nEnd"])
+            errors.append(
+                {
+                    "lnum": lnum,
+                    "col": col,
+                    "end_lnum": end_lnum,
+                    "end_col": end_col,
+                    "rule": e["sRuleId"],
+                    "message": e["sMessage"],
+                    "suggestions": e["aSuggestions"],
+                }
+            )
+    return errors
+
+
+for line in sys.stdin:
+    req = None
+    try:
+        req = json.loads(line)
+        resp = {"id": req["id"], "errors": check(req["text"], set(req.get("ignore", [])))}
+    except Exception as e:  # never die mid-session on one bad buffer
+        resp = {"id": req.get("id") if isinstance(req, dict) else None, "errors": [], "warning": repr(e)}
+    print(json.dumps(resp, ensure_ascii=False), flush=True)

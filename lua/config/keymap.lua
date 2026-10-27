@@ -21,13 +21,16 @@ local cmap = function(key, effect)
   vim.keymap.set('c', key, effect, { silent = true, noremap = true })
 end
 
--- Code action picker. When ltex is attached, appends magic comment options to the
--- standard LSP action list so you can insert <!-- ltex: ... --> directives inline.
+-- Code action picker. Appends non-LSP actions to the standard LSP action list:
+-- Grammalecte's fixes/ignores for a French grammar error under the cursor
+-- (config/grammalecte.lua), and, when ltex is attached, <!-- ltex: ... -->
+-- magic comments.
 local function code_action()
   local bufnr = vim.api.nvim_get_current_buf()
   local ltex_clients = vim.lsp.get_clients { bufnr = bufnr, name = 'ltex' }
+  local grammalecte_items = require('config.grammalecte').code_actions(bufnr)
 
-  if #ltex_clients == 0 then
+  if #ltex_clients == 0 and #grammalecte_items == 0 then
     vim.lsp.buf.code_action()
     return
   end
@@ -41,7 +44,8 @@ local function code_action()
   end
 
   -- Request code actions from all attached clients synchronously.
-  local params = vim.lsp.util.make_range_params(0, ltex_clients[1].offset_encoding)
+  local clients = vim.lsp.get_clients { bufnr = bufnr }
+  local params = vim.lsp.util.make_range_params(0, clients[1] and clients[1].offset_encoding or 'utf-16')
   params.context = {
     triggerKind = 1,
     diagnostics = vim.tbl_map(function(d)
@@ -65,16 +69,22 @@ local function code_action()
     end
   end
 
+  for _, item in ipairs(grammalecte_items) do
+    table.insert(items, { label = item.label, kind = 'magic', fn = item.fn })
+  end
+
   -- ltex magic comment options (inserted above the current line).
-  local ins = lnum  -- nvim_buf_set_lines uses 0-indexed insert-before
-  table.insert(items, {
-    label = '⟨ltex⟩ Add "' .. word .. '" to inline dictionary',
-    kind  = 'magic',
-    fn    = function()
-      vim.api.nvim_buf_set_lines(bufnr, ins, ins, false,
-        { '<!-- ltex: dictionary=[' .. word .. '] -->' })
-    end,
-  })
+  if #ltex_clients > 0 then
+    local ins = lnum  -- nvim_buf_set_lines uses 0-indexed insert-before
+    table.insert(items, {
+      label = '⟨ltex⟩ Add "' .. word .. '" to inline dictionary',
+      kind  = 'magic',
+      fn    = function()
+        vim.api.nvim_buf_set_lines(bufnr, ins, ins, false,
+          { '<!-- ltex: dictionary=[' .. word .. '] -->' })
+      end,
+    })
+  end
 
   if #items == 0 then
     vim.notify('No code actions available', vim.log.levels.INFO)
@@ -501,8 +511,12 @@ wk.add({
     -- ~/dotfiles/dict.sh in a float; see config/dict.lua.
     { "<leader>zd", function() require('config.dict').define() end, desc = "[d]efine word (dict)" },
     { "<leader>zt", function() require('config.dict').thesaurus() end, desc = "[t]hesaurus: pick a synonym (ctrl-y swaps it in)" },
+    -- French grammar (Grammalecte); also runs on open/save. See config/grammalecte.lua.
+    { "<leader>zc", function() require('config.grammalecte').check() end, desc = "[c]heck French grammar now" },
+    { "<leader>zf", function() require('config.grammalecte').fix() end, desc = "[f]ix French grammar error (or ignore rule)" },
   }
 }, { mode = 'n'})
 
 require('config.binder').setup()
 require('config.research').setup()
+require('config.grammalecte').setup()

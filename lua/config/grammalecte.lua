@@ -1,0 +1,336 @@
+-- grammalecte.lua: French grammar checking with Grammalecte
+-- (apt: python3-grammalecte), shown as diagnostics with source "grammalecte".
+-- harper_ls is English-only and ltex is too heavy, so this fills the gap.
+--
+-- scripts/grammalecte_bridge.py runs as one long-lived job (~70MB), started
+-- by the first check. It is sent the whole buffer and finds the French in it
+-- itself: `lang: fr` documents, `::: {lang=fr}` divs, `[...]{lang=fr}` spans,
+-- and auto-detected French quotations, italic titles and sentences. Code,
+-- metadata comments and citations are skipped. See the bridge for the rules
+-- switched off.
+--
+-- Runs in Quarto buffers, markdown under a research/ directory, and Obsidian
+-- vault notes: on open, on save, and on <leader>zc.
+-- <leader>zf (and <leader>la, alongside LSP actions): apply one of
+-- Grammalecte's suggestions for the error under the cursor, or ignore it --
+-- on this line / in this file (`<!-- grammalecte:ignore[-file] [RULE...] -->`
+-- comments, see the bridge) or in the project (<root>/.grammalecte-ignore,
+-- one rule id per line, # comments).
+
+local M = {}
+
+local bridge = vim.fn.stdpath 'config' .. '/scripts/grammalecte_bridge.py'
+local ns = vim.api.nvim_create_namespace 'grammalecte'
+
+local job = nil
+local failed = false -- set once the bridge can't start; stops retrying
+local next_id = 0
+local pending = {} -- request id -> { buf, tick }
+
+local function applies(buf)
+  local ft = vim.bo[buf].filetype
+  if ft == 'quarto' then
+    return true
+  end
+  if ft ~= 'markdown' then
+    return false
+  end
+  return vim.api.nvim_buf_get_name(buf):find('/research/', 1, true) ~= nil or vim.fs.root(buf, '.obsidian') ~= nil
+end
+
+-- Same root markers as the per-project spellfile (ftplugin/quarto.lua), plus
+-- the vault root for Obsidian notes.
+local function ignore_file(buf)
+  local root = vim.fs.root(buf, { '_quarto.yml', '_quarto.yaml', '.obsidian', '.git' }) or vim.fn.getcwd()
+  return root .. '/.grammalecte-ignore'
+end
+
+local function read_ignores(buf)
+  local ok, lines = pcall(vim.fn.readfile, ignore_file(buf))
+  if not ok then
+    return {}
+  end
+  local rules = {}
+  for _, l in ipairs(lines) do
+    l = vim.trim(l)
+    if l ~= '' and not l:match '^#' then
+      table.insert(rules, l)
+    end
+  end
+  return rules
+end
+
+local function handle(line)
+  local ok, resp = pcall(vim.json.decode, line)
+  if not ok then
+    return
+  end
+  if resp.error then
+    failed = true
+    vim.notify('[grammalecte] ' .. resp.error, vim.log.levels.ERROR)
+    return
+  end
+  if resp.warning then
+    vim.notify('[grammalecte] ' .. resp.warning, vim.log.levels.WARN)
+  end
+  local req = pending[resp.id]
+  pending[resp.id] = nil
+  -- Drop results for text that has changed since; the next save re-checks.
+  if not req or not vim.api.nvim_buf_is_valid(req.buf) or vim.b[req.buf].changedtick ~= req.tick then
+    return
+  end
+  local diags = {}
+  for _, e in ipairs(resp.errors) do
+    table.insert(diags, {
+      lnum = e.lnum,
+      col = e.col,
+      end_lnum = e.end_lnum,
+      end_col = e.end_col,
+      severity = vim.diagnostic.severity.INFO,
+      source = 'grammalecte',
+      code = e.rule,
+      message = e.message,
+      user_data = { suggestions = e.suggestions },
+    })
+  end
+  vim.diagnostic.set(ns, req.buf, diags)
+end
+
+local function start()
+  if job or failed then
+    return job
+  end
+  if vim.fn.filereadable(bridge) == 0 then
+    failed = true
+    vim.notify('[grammalecte] ' .. bridge .. ' not found', vim.log.levels.ERROR)
+    return nil
+  end
+  local partial = ''
+  local id = vim.fn.jobstart({ vim.g.grammalecte_python or '/usr/bin/python3', bridge }, {
+    on_stdout = function(_, data)
+      data[1] = partial .. data[1]
+      partial = table.remove(data)
+      for _, line in ipairs(data) do
+        if line ~= '' then
+          vim.schedule(function()
+            handle(line)
+          end)
+        end
+      end
+    end,
+    on_exit = function()
+      job = nil
+      pending = {}
+    end,
+  })
+  if id <= 0 then
+    failed = true
+    vim.notify('[grammalecte] could not start the bridge (is /usr/bin/python3 there?)', vim.log.levels.ERROR)
+    return nil
+  end
+  job = id
+  return job
+end
+
+function M.check(buf)
+  buf = (buf == nil or buf == 0) and vim.api.nvim_get_current_buf() or buf
+  if not start() then
+    return
+  end
+  next_id = next_id + 1
+  pending[next_id] = { buf = buf, tick = vim.b[buf].changedtick }
+  local text = table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), '\n')
+  vim.fn.chansend(job, vim.json.encode { id = next_id, text = text, ignore = read_ignores(buf) } .. '\n')
+end
+
+-- The grammalecte diagnostic under the cursor, else the first on the line.
+local function diagnostic_at_cursor()
+  local row, col = unpack(vim.api.nvim_win_get_cursor(0))
+  local diags = vim.diagnostic.get(0, { namespace = ns, lnum = row - 1 })
+  for _, d in ipairs(diags) do
+    if d.col <= col and (col < d.end_col or d.end_lnum > d.lnum) then
+      return d
+    end
+  end
+  return diags[1]
+end
+
+-- Adds `rule` (nil = every rule) to the `<!-- grammalecte:<kind> ... -->`
+-- directive matched on line `lnum`. Returns the new line, or nil if `line`
+-- has no such directive.
+local function merge_directive(line, kind, rule)
+  -- The %s after the kind keeps `ignore` from matching `ignore-file`.
+  local pat = '<!%-%-%s*grammalecte:' .. vim.pesc(kind) .. '(%s.-)%-%->'
+  local rules = line:match(pat)
+  if not rules then
+    return nil
+  end
+  rules = vim.trim(rules)
+  local new
+  if rules == '' or not rule then
+    new = '' -- every rule (already, or now)
+  elseif vim.tbl_contains(vim.split(rules, '%s+'), rule) then
+    new = rules
+  else
+    new = rules .. ' ' .. rule
+  end
+  local repl = '<!-- grammalecte:' .. kind .. (new ~= '' and ' ' .. new or '') .. ' -->'
+  return (line:gsub(pat, function()
+    return repl
+  end, 1))
+end
+
+-- Line-wise: a trailing comment on the error's line (a line of its own
+-- would break lists and blockquotes).
+local function ignore_on_line(buf, lnum, rule)
+  local line = vim.api.nvim_buf_get_lines(buf, lnum, lnum + 1, false)[1]
+  local merged = merge_directive(line, 'ignore', rule)
+  if not merged then
+    merged = line .. ' <!-- grammalecte:ignore' .. (rule and ' ' .. rule or '') .. ' -->'
+  end
+  vim.api.nvim_buf_set_lines(buf, lnum, lnum + 1, false, { merged })
+end
+
+-- File-wise: one directive line, after any YAML front matter and leading
+-- metadata comment. Never line 1 -- binder reads its metadata block from there.
+local function ignore_in_file(buf, rule)
+  local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+  for i, line in ipairs(lines) do
+    local merged = merge_directive(line, 'ignore-file', rule)
+    if merged then
+      vim.api.nvim_buf_set_lines(buf, i - 1, i, false, { merged })
+      return
+    end
+  end
+  local at = 0
+  if lines[1] == '---' then
+    for i = 2, #lines do
+      if lines[i] == '---' or lines[i] == '...' then
+        at = i
+        break
+      end
+    end
+  end
+  if lines[at + 1] and lines[at + 1]:match '^<!%-%-' then
+    for i = at + 1, #lines do
+      if lines[i]:find('-->', 1, true) then
+        at = i
+        break
+      end
+    end
+  end
+  vim.api.nvim_buf_set_lines(buf, at, at, false, { '<!-- grammalecte:ignore-file' .. (rule and ' ' .. rule or '') .. ' -->' })
+end
+
+-- Actions for the grammalecte diagnostic under the cursor, as
+-- { label, fn } items. Shared by <leader>zf and the <leader>la picker.
+function M.code_actions(buf)
+  buf = (buf == nil or buf == 0) and vim.api.nvim_get_current_buf() or buf
+  local d = diagnostic_at_cursor()
+  if not d then
+    return {}
+  end
+  local function act(label, fn)
+    return {
+      label = '⟨grammalecte⟩ ' .. label,
+      fn = function()
+        fn()
+        M.check(buf)
+      end,
+    }
+  end
+  local items = {}
+  for _, s in ipairs(d.user_data.suggestions or {}) do
+    table.insert(
+      items,
+      act('Replace with "' .. s .. '"', function()
+        vim.api.nvim_buf_set_text(buf, d.lnum, d.col, d.end_lnum, d.end_col, vim.split(s, '\n'))
+      end)
+    )
+  end
+  vim.list_extend(items, {
+    act('Ignore ' .. d.code .. ' on this line', function()
+      ignore_on_line(buf, d.lnum, d.code)
+    end),
+    act('Ignore ' .. d.code .. ' in this file', function()
+      ignore_in_file(buf, d.code)
+    end),
+    act('Ignore ' .. d.code .. ' in this project', function()
+      vim.fn.writefile({ d.code }, ignore_file(buf), 'a')
+    end),
+    act('Ignore all French grammar on this line', function()
+      ignore_on_line(buf, d.lnum, nil)
+    end),
+    act('Disable Grammalecte for this file', function()
+      ignore_in_file(buf, nil)
+    end),
+  })
+  return items
+end
+
+function M.fix()
+  local items = M.code_actions(0)
+  if #items == 0 then
+    vim.notify('[grammalecte] no French grammar error on this line', vim.log.levels.INFO)
+    return
+  end
+  vim.ui.select(items, {
+    prompt = diagnostic_at_cursor().message,
+    format_item = function(item)
+      return item.label
+    end,
+  }, function(item)
+    if item then
+      item.fn()
+    end
+  end)
+end
+
+function M.setup()
+  local group = vim.api.nvim_create_augroup('grammalecte', { clear = true })
+  local function attach(buf)
+    if not applies(buf) then
+      return
+    end
+    -- FileType can fire again for the same buffer (:set ft=...).
+    vim.api.nvim_clear_autocmds { group = group, event = 'BufWritePost', buffer = buf }
+    vim.api.nvim_create_autocmd('BufWritePost', {
+      group = group,
+      buffer = buf,
+      callback = function()
+        M.check(buf)
+      end,
+    })
+    -- Deferred: FileType fires mid-load, and later loading steps bump
+    -- changedtick, which would make handle() drop the result as stale.
+    vim.schedule(function()
+      if vim.api.nvim_buf_is_valid(buf) then
+        M.check(buf)
+      end
+    end)
+  end
+  vim.api.nvim_create_autocmd('FileType', {
+    group = group,
+    pattern = { 'quarto', 'markdown' },
+    callback = function(ev)
+      attach(ev.buf)
+    end,
+  })
+  -- setup() runs from which-key's config, possibly after the first file's
+  -- FileType has already fired.
+  for _, buf in ipairs(vim.api.nvim_list_bufs()) do
+    if vim.api.nvim_buf_is_loaded(buf) then
+      attach(buf)
+    end
+  end
+  vim.api.nvim_create_autocmd('VimLeavePre', {
+    group = group,
+    callback = function()
+      if job then
+        vim.fn.jobstop(job)
+      end
+    end,
+  })
+end
+
+return M
