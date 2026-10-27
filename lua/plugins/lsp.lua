@@ -525,6 +525,16 @@ return {
         -- which harper-ls can still fail to act on in time.
         flags = vim.tbl_extend('force', lsp_flags, { exit_timeout = 3000 }),
         filetypes = { 'markdown', 'quarto', 'gitcommit', 'tex', 'text' },
+        -- Not for documents that declare `lang: fr`: those get Grammalecte for
+        -- the whole text instead (config/grammalecte.lua, which also detaches/
+        -- re-attaches harper when a save changes the declared language).
+        -- Defining root_dir replaces lspconfig's root_markers, so they're
+        -- repeated here.
+        root_dir = function(bufnr, on_dir)
+          if not require('config.grammalecte').is_french(bufnr) then
+            on_dir(vim.fs.root(bufnr, { '.harper-dictionary.txt', '.git' }))
+          end
+        end,
         -- harper-ls's full prose (not comment-only) parser is keyed to the
         -- "markdown" language id; quarto is a markdown superset, so route it
         -- the same way or it silently falls back to comment-only parsing.

@@ -27,6 +27,66 @@ local failed = false -- set once the bridge can't start; stops retrying
 local next_id = 0
 local pending = {} -- request id -> { buf, tick }
 
+-- The document's declared language: `lang:` in its first metadata block --
+-- YAML front matter, or the line-1 <!-- --> block binder/research use (the
+-- same first-block rule as binder's parse_meta).
+function M.doc_lang(buf)
+  local lines = vim.api.nvim_buf_get_lines(buf, 0, 40, false)
+  local close
+  if lines[1] == '---' then
+    close = '^%-%-%-'
+  elseif lines[1] and lines[1]:match '^<!%-%-' then
+    close = '%-%->'
+    lines[1] = lines[1]:gsub('^<!%-%-%s*', '')
+  else
+    return nil
+  end
+  for i, line in ipairs(lines) do
+    local lang = line:match '^lang:%s*["\']?([%w-]+)'
+    if lang then
+      return lang
+    end
+    if (i > 1 or close == '%-%->') and line:match(close) then
+      return nil
+    end
+  end
+end
+
+-- `lang: fr` documents get Grammalecte for the whole text instead of
+-- harper_ls (see its root_dir in plugins/lsp.lua) and French-only spelling.
+function M.is_french(buf)
+  local lang = M.doc_lang(buf)
+  return lang ~= nil and lang:match '^fr' ~= nil
+end
+
+-- Applies a change of declared language (on open, and when a save changes
+-- it): spelllang, and detaching/re-attaching harper_ls.
+local function sync_lang(buf)
+  local french = M.is_french(buf)
+  local was = vim.b[buf].grammalecte_french
+  if was == french then
+    return
+  end
+  vim.b[buf].grammalecte_french = french
+  if french then
+    vim.bo[buf].spelllang = 'fr'
+  elseif was ~= nil then
+    vim.bo[buf].spelllang = 'en,fr'
+  end
+  if was == nil then
+    return -- on open, harper's root_dir already decided
+  end
+  if french then
+    for _, client in ipairs(vim.lsp.get_clients { bufnr = buf, name = 'harper_ls' }) do
+      vim.lsp.buf_detach_client(buf, client.id)
+    end
+  else
+    -- Re-run vim.lsp.enable's attach logic (its FileType autocmd) for this
+    -- buffer; harper's root_dir now lets it through.
+    pcall(vim.api.nvim_exec_autocmds, 'FileType', { group = 'nvim.lsp.enable', buffer = buf })
+  end
+end
+
 local function applies(buf)
   local ft = vim.bo[buf].filetype
   if ft == 'quarto' then
@@ -140,7 +200,7 @@ function M.check(buf)
   next_id = next_id + 1
   pending[next_id] = { buf = buf, tick = vim.b[buf].changedtick }
   local text = table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), '\n')
-  vim.fn.chansend(job, vim.json.encode { id = next_id, text = text, ignore = read_ignores(buf) } .. '\n')
+  vim.fn.chansend(job, vim.json.encode { id = next_id, text = text, french = M.is_french(buf), ignore = read_ignores(buf) } .. '\n')
 end
 
 -- The grammalecte diagnostic under the cursor, else the first on the line.
@@ -298,6 +358,7 @@ function M.setup()
       group = group,
       buffer = buf,
       callback = function()
+        sync_lang(buf)
         M.check(buf)
       end,
     })
@@ -305,6 +366,7 @@ function M.setup()
     -- changedtick, which would make handle() drop the result as stale.
     vim.schedule(function()
       if vim.api.nvim_buf_is_valid(buf) then
+        sync_lang(buf)
         M.check(buf)
       end
     end)

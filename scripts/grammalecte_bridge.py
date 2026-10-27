@@ -5,12 +5,14 @@ response per line on stdout. Only French text in the buffer is checked --
 the manuscripts are English prose quoting French, and Grammalecte run over
 English flags nearly every line.
 
-Request:  {"id": n, "text": "<whole buffer>", "ignore": ["rule_id", ...]}
+Request:  {"id": n, "text": "<whole buffer>", "french": bool,
+           "ignore": ["rule_id", ...]}
 Response: {"id": n, "errors": [{"lnum", "col", "end_lnum", "end_col",
            "rule", "message", "suggestions"}]}   (0-based, byte columns)
 
 Which text counts as French:
-  - the whole document, if its YAML front matter says `lang: fr`
+  - the whole document, if it declares `lang: fr` ("french" in the
+    request; grammalecte.lua's doc_lang decides)
   - `::: {lang=fr}` fenced divs and `[...]{lang=fr}` spans (Pandoc markup)
   - otherwise auto-detected: quotations, *italic* titles, and sentences
     whose function words are mostly French
@@ -94,10 +96,9 @@ QUOTED = re.compile(r'"([^"\n]+)"|“([^”]+)”|«([^»]+)»|(?<!\*)\*([^*\n]+
 SENTENCE_END = re.compile(r"(?<=[.!?])\s+")
 
 
-def french_spans(text):
+def french_spans(text, doc_french):
     """Returns (masked_text, [(start, end, options)]) in character offsets."""
     fm = FRONT_MATTER.match(text)
-    doc_french = bool(fm and re.search(r"^lang:\s*[\"']?fr", fm.group(), re.M))
     if fm:
         text = blank(fm) + text[fm.end() :]
 
@@ -193,12 +194,12 @@ def directives(text):
     return file_ignore, line_ignores
 
 
-def check(text, ignore):
+def check(text, doc_french, ignore):
     file_ignore, line_ignores = directives(text)
     if file_ignore is ALL:
         return []
     ignore = ignore | file_ignore
-    masked, spans = french_spans(text)
+    masked, spans = french_spans(text, doc_french)
     xy = to_xy(text)
     errors = []
     for start, end, opts in spans:
@@ -228,7 +229,7 @@ for line in sys.stdin:
     req = None
     try:
         req = json.loads(line)
-        resp = {"id": req["id"], "errors": check(req["text"], set(req.get("ignore", [])))}
+        resp = {"id": req["id"], "errors": check(req["text"], bool(req.get("french")), set(req.get("ignore", [])))}
     except Exception as e:  # never die mid-session on one bad buffer
         resp = {"id": req.get("id") if isinstance(req, dict) else None, "errors": [], "warning": repr(e)}
     print(json.dumps(resp, ensure_ascii=False), flush=True)
