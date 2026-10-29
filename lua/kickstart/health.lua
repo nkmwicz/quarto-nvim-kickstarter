@@ -53,15 +53,24 @@ local check_tree_sitter_cli = function()
   end
 end
 
--- French grammar checking (lua/config/grammalecte.lua) runs on the system
--- Python, where apt's python3-grammalecte lives.
+-- French grammar checking (lua/config/grammalecte.lua) and the be-verb hints
+-- (lua/config/beverbs.lua) share one bridge process, on the prose venv's
+-- Python (scripts/setup_prose_venv.sh), which sees apt's python3-grammalecte.
 local check_grammalecte = function()
-  local python = vim.g.grammalecte_python or '/usr/bin/python3'
+  local python = require('config.grammalecte').python()
   local res = vim.system({ python, '-c', 'import grammalecte' }):wait()
   if res.code == 0 then
     vim.health.ok(string.format('grammalecte importable from %s', python))
   else
     vim.health.warn(string.format('grammalecte not importable from %s. Install it with: sudo apt install python3-grammalecte', python))
+  end
+  local setup = vim.fn.stdpath 'config' .. '/scripts/setup_prose_venv.sh'
+  local probe = 'import os, sys, lemminflect, en_core_web_sm, wn; wn.config.data_directory = os.path.join(sys.prefix, "wn_data"); wn.Wordnet("oewn:2024")'
+  res = vim.system({ python, '-c', probe }):wait()
+  if res.code == 0 then
+    vim.health.ok(string.format('be-verb hints: spaCy, lemminflect and Open English WordNet available from %s', python))
+  else
+    vim.health.warn(string.format('be-verb hints unavailable from %s. Run %s', python, setup))
   end
 end
 

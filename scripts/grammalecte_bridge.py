@@ -10,6 +10,15 @@ Request:  {"id": n, "text": "<whole buffer>", "french": bool,
 Response: {"id": n, "errors": [{"lnum", "col", "end_lnum", "end_col",
            "rule", "message", "suggestions"}]}   (0-based, byte columns)
 
+The same process also serves the be-verb hints (beverbs.py, imported on
+first use; see config/beverbs.lua), answered from a worker thread so a
+slow parse never holds up Grammalecte -- responses can come back out of
+order, matched by id:
+  {"id", "op": "beverbs", "text", "ignore"}
+      -> {"id", "errors": [... as above, with "fix" instead of "suggestions"]}
+  {"id", "op": "suggest", "fix": {...}}  -> {"id", "suggestions": [...]}
+  either -> {"id", "unavailable": "<why>"} when the prose venv is missing.
+
 Which text counts as French:
   - the whole document, if it declares `lang: fr` ("french" in the
     request; grammalecte.lua's doc_lang decides)
@@ -28,12 +37,16 @@ Ignore directives (HTML comments, so invisible in rendered output):
   <!-- grammalecte:ignore-file -->         whole file
   <!-- grammalecte:ignore-file RULE ... -->  those rules in this file
 A line directive applies to the line it's on, or to the next line if it
-stands alone on its own line.
+stands alone on its own line. Be-verb rules (BE_*) are only ignored by
+name: a bare directive, usually there to quiet a French quotation, leaves
+the English around it hinted.
 """
 
 import json
+import queue
 import re
 import sys
+import threading
 
 try:
     import grammalecte
@@ -177,6 +190,11 @@ def to_xy(text):
 ALL = None  # line-ignore value meaning "every rule"
 
 
+def ignores(rules, rule):
+    """Whether an ignore set (or ALL) covers rule; ALL skips be-verb rules."""
+    return not rule.startswith("BE_") if rules is ALL else rule in rules
+
+
 def directives(text):
     """Returns (file_ignore, line_ignores): file_ignore is ALL or a set of
     rule ids; line_ignores maps 0-based line -> ALL or a set of rule ids."""
@@ -208,7 +226,7 @@ def check(text, doc_french, ignore):
             if e["sRuleId"] in ignore:
                 continue
             lnum, col = xy(start + e["nStart"])
-            if lnum in line_ignores and (line_ignores[lnum] is ALL or e["sRuleId"] in line_ignores[lnum]):
+            if lnum in line_ignores and ignores(line_ignores[lnum], e["sRuleId"]):
                 continue
             end_lnum, end_col = xy(start + e["nEnd"])
             errors.append(
@@ -225,11 +243,79 @@ def check(text, doc_french, ignore):
     return errors
 
 
+def check_beverbs(text, ignore):
+    import beverbs  # noqa: PLC0415 -- lazy, see the module docstring
+
+    file_ignore, line_ignores = directives(text)
+    ignore = ignore | (set() if file_ignore is ALL else file_ignore)
+    # English only: blank out the French that Grammalecte would check.
+    masked, spans = french_spans(text, False)
+    for start, end, _ in spans:
+        masked = masked[:start] + re.sub(r"[^\n]", " ", masked[start:end]) + masked[end:]
+    xy = to_xy(text)
+    errors = []
+    for rule, start, end, message, fix in beverbs.check(masked):
+        lnum, col = xy(start)
+        if rule in ignore or (lnum in line_ignores and ignores(line_ignores[lnum], rule)):
+            continue
+        end_lnum, end_col = xy(end)
+        errors.append(
+            {"lnum": lnum, "col": col, "end_lnum": end_lnum, "end_col": end_col, "rule": rule, "message": message, "fix": fix}
+        )
+    return errors
+
+
+out_lock = threading.Lock()
+
+
+def send(resp):
+    with out_lock:
+        print(json.dumps(resp, ensure_ascii=False), flush=True)
+
+
+def serve(req):
+    """Answers one request; never dies mid-session on one bad buffer."""
+    resp = {"id": req.get("id") if isinstance(req, dict) else None}
+    try:
+        op = req.get("op", "grammar")
+        if op == "grammar":
+            resp["errors"] = check(req["text"], bool(req.get("french")), set(req.get("ignore", [])))
+        elif op == "beverbs":
+            resp["errors"] = check_beverbs(req["text"], set(req.get("ignore", [])))
+        elif op == "suggest":
+            import beverbs  # noqa: PLC0415
+
+            resp["suggestions"] = beverbs.suggest(req["fix"])
+    except ImportError as e:  # prose venv missing (scripts/setup_prose_venv.sh)
+        resp["unavailable"] = f"{e}; run {sys.path[0]}/setup_prose_venv.sh"
+    except Exception as e:
+        resp.update(errors=[], warning=repr(e))
+    send(resp)
+
+
+# Be-verb work, in order, off the main thread.
+work = queue.Queue()
+
+
+def worker():
+    for req in iter(work.get, None):
+        serve(req)
+
+
+worker_thread = threading.Thread(target=worker)
+worker_thread.start()
+
 for line in sys.stdin:
-    req = None
     try:
         req = json.loads(line)
-        resp = {"id": req["id"], "errors": check(req["text"], bool(req.get("french")), set(req.get("ignore", [])))}
-    except Exception as e:  # never die mid-session on one bad buffer
-        resp = {"id": req.get("id") if isinstance(req, dict) else None, "errors": [], "warning": repr(e)}
-    print(json.dumps(resp, ensure_ascii=False), flush=True)
+    except ValueError as e:
+        send({"id": None, "errors": [], "warning": repr(e)})
+        continue
+    if req.get("op") in ("beverbs", "suggest"):
+        work.put(req)
+    else:
+        serve(req)
+
+# Neovim closed stdin (or killed us); finish what's queued.
+work.put(None)
+worker_thread.join()

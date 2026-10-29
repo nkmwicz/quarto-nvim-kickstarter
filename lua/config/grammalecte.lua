@@ -3,7 +3,9 @@
 -- harper_ls is English-only and ltex is too heavy, so this fills the gap.
 --
 -- scripts/grammalecte_bridge.py runs as one long-lived job (~70MB), started
--- by the first check. It is sent the whole buffer and finds the French in it
+-- by the first check, on the prose venv's Python when it exists
+-- (scripts/setup_prose_venv.sh) and the system Python otherwise. The job is
+-- shared with the be-verb hints (config/beverbs.lua, via M.request). It is sent the whole buffer and finds the French in it
 -- itself: `lang: fr` documents, `::: {lang=fr}` divs, `[...]{lang=fr}` spans,
 -- and auto-detected French quotations, italic titles and sentences. Code,
 -- metadata comments and citations are skipped. See the bridge for the rules
@@ -25,7 +27,14 @@ local ns = vim.api.nvim_create_namespace 'grammalecte'
 local job = nil
 local failed = false -- set once the bridge can't start; stops retrying
 local next_id = 0
-local pending = {} -- request id -> { buf, tick }
+local pending = {} -- request id -> callback(response)
+
+-- The venv has apt's grammalecte too (--system-site-packages), plus what
+-- the be-verb hints need. vim.g.grammalecte_python overrides both.
+local venv_python = vim.fn.stdpath 'data' .. '/prose-venv/bin/python'
+function M.python()
+  return vim.g.grammalecte_python or (vim.fn.executable(venv_python) == 1 and venv_python) or '/usr/bin/python3'
+end
 
 -- The document's declared language: `lang:` in its first metadata block --
 -- YAML front matter, or the line-1 <!-- --> block binder/research use (the
@@ -100,13 +109,13 @@ end
 
 -- Same root markers as the per-project spellfile (ftplugin/quarto.lua), plus
 -- the vault root for Obsidian notes.
-local function ignore_file(buf)
+function M.ignore_file(buf)
   local root = vim.fs.root(buf, { '_quarto.yml', '_quarto.yaml', '.obsidian', '.git' }) or vim.fn.getcwd()
   return root .. '/.grammalecte-ignore'
 end
 
-local function read_ignores(buf)
-  local ok, lines = pcall(vim.fn.readfile, ignore_file(buf))
+function M.read_ignores(buf)
+  local ok, lines = pcall(vim.fn.readfile, M.ignore_file(buf))
   if not ok then
     return {}
   end
@@ -133,10 +142,16 @@ local function handle(line)
   if resp.warning then
     vim.notify('[grammalecte] ' .. resp.warning, vim.log.levels.WARN)
   end
-  local req = pending[resp.id]
+  local cb = pending[resp.id]
   pending[resp.id] = nil
+  if cb then
+    cb(resp)
+  end
+end
+
+local function show(buf, tick, resp)
   -- Drop results for text that has changed since; the next save re-checks.
-  if not req or not vim.api.nvim_buf_is_valid(req.buf) or vim.b[req.buf].changedtick ~= req.tick then
+  if not vim.api.nvim_buf_is_valid(buf) or vim.b[buf].changedtick ~= tick then
     return
   end
   local diags = {}
@@ -153,7 +168,7 @@ local function handle(line)
       user_data = { suggestions = e.suggestions },
     })
   end
-  vim.diagnostic.set(ns, req.buf, diags)
+  vim.diagnostic.set(ns, buf, diags)
 end
 
 local function start()
@@ -166,7 +181,7 @@ local function start()
     return nil
   end
   local partial = ''
-  local id = vim.fn.jobstart({ vim.g.grammalecte_python or '/usr/bin/python3', bridge }, {
+  local id = vim.fn.jobstart({ M.python(), bridge }, {
     on_stdout = function(_, data)
       data[1] = partial .. data[1]
       partial = table.remove(data)
@@ -185,22 +200,33 @@ local function start()
   })
   if id <= 0 then
     failed = true
-    vim.notify('[grammalecte] could not start the bridge (is /usr/bin/python3 there?)', vim.log.levels.ERROR)
+    vim.notify('[grammalecte] could not start the bridge (is ' .. M.python() .. ' there?)', vim.log.levels.ERROR)
     return nil
   end
   job = id
   return job
 end
 
-function M.check(buf)
-  buf = (buf == nil or buf == 0) and vim.api.nvim_get_current_buf() or buf
+-- Sends one request (a table, minus its id) to the bridge; cb(response) runs
+-- on the main loop. Returns false if the bridge isn't running.
+function M.request(req, cb)
   if not start() then
-    return
+    return false
   end
   next_id = next_id + 1
-  pending[next_id] = { buf = buf, tick = vim.b[buf].changedtick }
+  pending[next_id] = cb
+  req.id = next_id
+  vim.fn.chansend(job, vim.json.encode(req) .. '\n')
+  return true
+end
+
+function M.check(buf)
+  buf = (buf == nil or buf == 0) and vim.api.nvim_get_current_buf() or buf
+  local tick = vim.b[buf].changedtick
   local text = table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), '\n')
-  vim.fn.chansend(job, vim.json.encode { id = next_id, text = text, french = M.is_french(buf), ignore = read_ignores(buf) } .. '\n')
+  M.request({ text = text, french = M.is_french(buf), ignore = M.read_ignores(buf) }, function(resp)
+    show(buf, tick, resp)
+  end)
 end
 
 -- The grammalecte diagnostic under the cursor, else the first on the line.
@@ -242,7 +268,7 @@ end
 
 -- Line-wise: a trailing comment on the error's line (a line of its own
 -- would break lists and blockquotes).
-local function ignore_on_line(buf, lnum, rule)
+function M.ignore_on_line(buf, lnum, rule)
   local line = vim.api.nvim_buf_get_lines(buf, lnum, lnum + 1, false)[1]
   local merged = merge_directive(line, 'ignore', rule)
   if not merged then
@@ -253,7 +279,7 @@ end
 
 -- File-wise: one directive line, after any YAML front matter and leading
 -- metadata comment. Never line 1 -- binder reads its metadata block from there.
-local function ignore_in_file(buf, rule)
+function M.ignore_in_file(buf, rule)
   local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
   for i, line in ipairs(lines) do
     local merged = merge_directive(line, 'ignore-file', rule)
@@ -310,32 +336,34 @@ function M.code_actions(buf)
   end
   vim.list_extend(items, {
     act('Ignore ' .. d.code .. ' on this line', function()
-      ignore_on_line(buf, d.lnum, d.code)
+      M.ignore_on_line(buf, d.lnum, d.code)
     end),
     act('Ignore ' .. d.code .. ' in this file', function()
-      ignore_in_file(buf, d.code)
+      M.ignore_in_file(buf, d.code)
     end),
     act('Ignore ' .. d.code .. ' in this project', function()
-      vim.fn.writefile({ d.code }, ignore_file(buf), 'a')
+      vim.fn.writefile({ d.code }, M.ignore_file(buf), 'a')
     end),
     act('Ignore all French grammar on this line', function()
-      ignore_on_line(buf, d.lnum, nil)
+      M.ignore_on_line(buf, d.lnum, nil)
     end),
     act('Disable Grammalecte for this file', function()
-      ignore_in_file(buf, nil)
+      M.ignore_in_file(buf, nil)
     end),
   })
   return items
 end
 
+-- <leader>zf: Grammalecte's and the be-verb hints' actions for the cursor.
 function M.fix()
-  local items = M.code_actions(0)
+  local items = vim.list_extend(M.code_actions(0), require('config.beverbs').code_actions(0))
   if #items == 0 then
-    vim.notify('[grammalecte] no French grammar error on this line', vim.log.levels.INFO)
+    vim.notify('no French grammar error or be-verb on this line', vim.log.levels.INFO)
     return
   end
+  local d = diagnostic_at_cursor() or require('config.beverbs').diagnostic_at_cursor()
   vim.ui.select(items, {
-    prompt = diagnostic_at_cursor().message,
+    prompt = d.message,
     format_item = function(item)
       return item.label
     end,

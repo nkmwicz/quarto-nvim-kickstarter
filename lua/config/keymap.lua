@@ -23,12 +23,14 @@ end
 
 -- Code action picker. Appends non-LSP actions to the standard LSP action list:
 -- Grammalecte's fixes/ignores for a French grammar error under the cursor
--- (config/grammalecte.lua), and, when ltex is attached, <!-- ltex: ... -->
+-- (config/grammalecte.lua), stronger verbs/ignores for a be-verb hint
+-- (config/beverbs.lua), and, when ltex is attached, <!-- ltex: ... -->
 -- magic comments.
 local function code_action()
   local bufnr = vim.api.nvim_get_current_buf()
   local ltex_clients = vim.lsp.get_clients { bufnr = bufnr, name = 'ltex' }
   local grammalecte_items = require('config.grammalecte').code_actions(bufnr)
+  vim.list_extend(grammalecte_items, require('config.beverbs').code_actions(bufnr))
 
   if #ltex_clients == 0 and #grammalecte_items == 0 then
     vim.lsp.buf.code_action()
@@ -511,12 +513,15 @@ wk.add({
     -- ~/dotfiles/dict.sh in a float; see config/dict.lua.
     { "<leader>zd", function() require('config.dict').define() end, desc = "[d]efine word (dict)" },
     { "<leader>zt", function() require('config.dict').thesaurus() end, desc = "[t]hesaurus: pick a synonym (ctrl-y swaps it in)" },
-    -- French grammar (Grammalecte); also runs on open/save. See config/grammalecte.lua.
-    { "<leader>zc", function() require('config.grammalecte').check() end, desc = "[c]heck French grammar now" },
-    { "<leader>zf", function() require('config.grammalecte').fix() end, desc = "[f]ix French grammar error (or ignore rule)" },
+    -- French grammar (Grammalecte) and be-verb hints; both also run on
+    -- open/save. See config/grammalecte.lua and config/beverbs.lua.
+    { "<leader>zc", function() require('config.grammalecte').check(); require('config.beverbs').check() end, desc = "[c]heck grammar now (French, be-verbs)" },
+    { "<leader>zf", function() require('config.grammalecte').fix() end, desc = "[f]ix grammar error / stronger verb (or ignore rule)" },
+    { "<leader>zb", function() require('config.beverbs').toggle() end, desc = "toggle [b]e-verb hints" },
   }
 }, { mode = 'n'})
 
 require('config.binder').setup()
 require('config.research').setup()
 require('config.grammalecte').setup()
+require('config.beverbs').setup()
