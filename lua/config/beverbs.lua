@@ -23,7 +23,10 @@
 -- fixed rewrites, each offered as its own action; VAGUE_VERB gets the
 -- troponym picker.
 --
--- And clarity hints (scripts/style.py), source "style": VAGUE_THIS ("This
+-- And clarity hints (scripts/style.py), source "style": NOMINAL_SUBJECT
+-- ("the transformation of the court became" -> "the court transformed"),
+-- GERUND_SUBJECT ("Signing the treaty angered" -> "When [who] signed..."),
+-- VAGUE_THIS ("This
 -- shows" -> "This refusal shows"), SUBJECT_VERB_GAP, NOUN_STACK, OF_CHAIN,
 -- ECHO (a word three times in two sentences; the section's keywords and
 -- its most frequent words exempt), QUOTE_ENDING and REPORTING_TENSE

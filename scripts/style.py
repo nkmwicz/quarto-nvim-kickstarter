@@ -13,6 +13,13 @@ Grace and Gopen & Swan's "The Science of Scientific Writing".
                     subject matter is meant to recur
   QUOTE_ENDING      a paragraph whose last sentence is mostly quotation:
                     the source gets the last word, not the analysis
+  NOMINAL_SUBJECT   an action turned noun as a subject: "the transformation
+                    of the court became important" -> "the court
+                    transformed"; only act/event/process nouns (WordNet)
+                    with their doer or object attached ("of the court",
+                    "France's"), not "government" or "alliance"
+  GERUND_SUBJECT     a gerund clause as subject: "Signing the treaty angered
+                    the emperor" -> "When [who] signed the treaty, ..."
   REPORTING_TENSE   scholars argue, historical actors argued: "Mattingly
                     argued" -> "argues", "Bodin argues" -> "argued". A
                     scholar is a surname in the project's .bib or cited
@@ -28,10 +35,12 @@ quotation marks or parentheses is checked (QUOTE_ENDING aside).
 
 from functools import cache
 
-from beverbs import WORDNET, end, inflect, plural, quoted, verb_nouns
-from strunk import SUBJECTS, choice
+import lemminflect
 
-RULES = {"VAGUE_THIS", "SUBJECT_VERB_GAP", "NOUN_STACK", "OF_CHAIN", "ECHO", "QUOTE_ENDING", "REPORTING_TENSE"}
+from beverbs import WORDNET, end, inflect, plural, quoted, verb_nouns
+from strunk import SUBJECTS, choice, nominal_verbs
+
+RULES = {"NOMINAL_SUBJECT", "GERUND_SUBJECT", "VAGUE_THIS", "SUBJECT_VERB_GAP", "NOUN_STACK", "OF_CHAIN", "ECHO", "QUOTE_ENDING", "REPORTING_TENSE"}
 
 DEMONSTRATIVES = {"this", "that", "these", "those"}
 GAP = 15  # words from the start of the subject to its verb
@@ -53,6 +62,120 @@ REPORTING_VERBS = {
     "point", "highlight", "underline", "reject", "dismiss", "deny", "agree", "disagree",
 }  # fmt: skip
 QUOTE_SHARE = 0.5  # of the last sentence's characters, for QUOTE_ENDING
+
+
+# --- actions as subjects ---------------------------------------------------
+
+ACTION_LEXFILES = {"noun.act", "noun.event", "noun.process", "noun.phenomenon"}
+# Results or events more than actions: "Mattingly's work", "the battle of".
+NOT_ACTIONS = {"work", "writing", "rest", "force", "battle", "war", "location", "position", "rivalry", "peace", "end", "use"}
+# The author's own doing: "analysis of X shows" -> "analyzing X shows".
+AUTHOR_ACTIONS = {
+    "analysis", "comparison", "inspection", "examination", "investigation", "study", "review",
+    "reading", "observation", "consideration", "evaluation", "assessment", "survey",
+}  # fmt: skip
+POSSESSIVE_SUBJECTS = {"its": "it", "his": "he", "her": "she", "their": "they", "our": "we", "my": "I"}
+THING_LEXFILES = {"noun.group", "noun.person", "noun.artifact", "noun.location", "noun.object"}
+
+
+@cache
+def action_verb(noun):
+    """The verb an action noun was made from (transformation -> transform),
+    or None for a noun that's mainly a thing (government, building)."""
+    synsets = WORDNET.synsets(noun, pos="n")[:2]
+    if not synsets or synsets[0].lexfile() in THING_LEXFILES or not any(s.lexfile() in ACTION_LEXFILES for s in synsets):
+        return None
+    verbs = nominal_verbs(noun)
+    return verbs[0] if verbs else None
+
+
+@cache
+def gerund_verb(noun):
+    """The verb of an -ing noun (the signing of -> sign), which WordNet
+    often files under its result (communication) rather than as an act."""
+    synsets = WORDNET.synsets(noun, pos="n")[:1]
+    if not noun.endswith("ing") or synsets and synsets[0].lexfile() in THING_LEXFILES:
+        return None  # "the building of", "the painting of"
+    verb = (lemminflect.getLemma(noun, upos="VERB") or ("",))[0]
+    return verb if verb != noun and WORDNET.synsets(verb, pos="v") else None
+
+
+def tense_of(main, who=None):
+    """The simple tense the main verb is in, for the rewrite's verb."""
+    aux = [c for c in main.children if c.dep_ in ("aux", "auxpass")]
+    if main.tag_ == "VBD" or main.tag_ == "VBN" and not aux or any(c.lower_ in ("was", "were", "had") for c in aux):
+        return "VBD"
+    return "VBP" if who is not None and who.tag_ in ("NNS", "NNPS") else "VBZ"
+
+
+def nominal_subjects(sent, q):
+    doc = sent.doc
+    for subj in sent:
+        if subj.dep_ not in ("nsubj", "nsubjpass") or subj.tag_ != "NN" or q[subj.i] or subj.i > subj.head.i:
+            continue  # plurals are mostly products: "negotiations", "writings"
+        if subj.lower_ in NOT_ACTIONS:
+            continue
+        verb = action_verb(subj.lemma_.lower()) or gerund_verb(subj.lower_)
+        if verb is None:
+            continue
+        # Its doer or object, which should become the subject.
+        of = next((p for p in subj.children if p.dep_ == "prep" and p.lower_ == "of"), None)
+        obj = next((c for c in of.children if c.dep_ == "pobj"), None) if of is not None else None
+        owner = next((c for c in subj.children if c.dep_ == "poss"), None)
+        who = obj if obj is not None else owner
+        if who is None or who.pos_ == "PRON" and owner is None or owner is not None and owner.tag_ == "WP$":
+            continue  # "whose support": no doer to promote
+        a = subj.left_edge
+        b = obj.right_edge if obj is not None else subj
+        phrase = doc[a.i : b.i + 1].text
+        if any(c in phrase for c in "\"“”«»()[]^"):
+            continue
+        tag = tense_of(subj.head, who)
+        if subj.lower_ in AUTHOR_ACTIONS and obj is not None:
+            done = doc[obj.left_edge.i : obj.right_edge.i + 1].text
+            how = f'"When we {verb} {done}, …"'
+        elif obj is not None and owner is not None and owner.tag_ != "WP$":
+            doer = POSSESSIVE_SUBJECTS.get(owner.lower_) or doc[owner.left_edge.i : owner.i + 1].text.removesuffix("’s").removesuffix("'s")
+            if owner.left_edge.pos_ == "DET":
+                doer = doer[:1].lower() + doer[1:]  # "The king's" opening the sentence
+            tag = tense_of(subj.head, owner)
+            done = doc[obj.left_edge.i : obj.right_edge.i + 1].text
+            how = f'"{doer} {inflect(verb, tag)} {done}"'
+        elif obj is not None:
+            doer = doc[obj.left_edge.i : obj.right_edge.i + 1].text
+            how = f'"{doer} {inflect(verb, tag)}" or "… {inflect(verb, "VBD" if tag == "VBD" else "VBZ")} {doer}"'
+        else:
+            doer = POSSESSIVE_SUBJECTS.get(owner.lower_, owner.text.removesuffix("’s").removesuffix("'s"))
+            if owner.lower_ in ("their", "our", "my") and tag == "VBZ":
+                tag = "VBP"
+            how = f'"{doer} {inflect(verb, tag)}…"'
+        yield (
+            "NOMINAL_SUBJECT",
+            a.idx,
+            end(b),
+            f'action as subject: "{phrase}": make "{verb}" the verb and its doer the subject ({how})',
+            None,
+        )
+
+
+def gerund_subjects(sent, q):
+    doc = sent.doc
+    for g in sent:
+        if g.tag_ != "VBG" or g.dep_ not in SUBJECTS or g.i > g.head.i or q[g.i] or g.lemma_ in ("be", "have"):
+            continue
+        if g.i != g.left_edge.i or any(c.dep_ in SUBJECTS or c.dep_ == "poss" for c in g.children):
+            continue  # it has its own doer: "France's signing...", "the king sending..."
+        span = doc[g.i : g.right_edge.i + 1]
+        if any(c in span.text for c in "\"“”«»()[]^"):
+            continue
+        rest = doc.text[end(g) : span.end_char]
+        yield (
+            "GERUND_SUBJECT",
+            g.idx,
+            span.end_char,
+            f'action as subject: "{span.text}" hides who did it ("When [who] {inflect(g.lemma_.lower(), tense_of(g.head))}{rest}, …")',
+            None,
+        )
 
 
 # --- vague "this" ----------------------------------------------------------
@@ -352,6 +475,8 @@ def rules(doc, exempt=frozenset(), scholars=frozenset(), unsure=frozenset()):
     notes = footnoted(doc)
     prev = None
     for sent in doc.sents:
+        yield from nominal_subjects(sent, q)
+        yield from gerund_subjects(sent, q)
         yield from vague_this(sent, prev, q)
         yield from subject_gaps(sent, q, notes)
         yield from noun_stacks(sent, q)
