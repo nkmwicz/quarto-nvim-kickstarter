@@ -23,7 +23,7 @@ end
 
 -- Code action picker. Appends non-LSP actions to the standard LSP action list:
 -- Grammalecte's fixes/ignores for a French grammar error under the cursor
--- (config/grammalecte.lua), rewrites/ignores for a be-verb or Strunk hint
+-- (config/grammalecte.lua), rewrites/ignores for a be-verb, Strunk or style hint
 -- (config/beverbs.lua), and, when ltex is attached, <!-- ltex: ... -->
 -- magic comments.
 local function code_action()
@@ -515,9 +515,9 @@ wk.add({
     { "<leader>zt", function() require('config.dict').thesaurus() end, desc = "[t]hesaurus: pick a synonym (ctrl-y swaps it in)" },
     -- French grammar (Grammalecte) and be-verb hints; both also run on
     -- open/save. See config/grammalecte.lua and config/beverbs.lua.
-    { "<leader>zc", function() require('config.grammalecte').check(); require('config.beverbs').check() end, desc = "[c]heck grammar now (French, be-verbs, Strunk)" },
+    { "<leader>zc", function() require('config.grammalecte').check(); require('config.beverbs').check() end, desc = "[c]heck grammar now (French, be-verbs, Strunk, style)" },
     { "<leader>zf", function() require('config.grammalecte').fix() end, desc = "[f]ix grammar error / stronger verb (or ignore rule)" },
-    { "<leader>zb", function() require('config.beverbs').toggle() end, desc = "toggle [b]e-verb & Strunk hints" },
+    { "<leader>zb", function() require('config.beverbs').toggle() end, desc = "toggle [b]e-verb, Strunk & style hints" },
   }
 }, { mode = 'n'})
 

@@ -10,12 +10,12 @@ Request:  {"id": n, "text": "<whole buffer>", "french": bool,
 Response: {"id": n, "errors": [{"lnum", "col", "end_lnum", "end_col",
            "rule", "message", "suggestions"}]}   (0-based, byte columns)
 
-The same process also serves the be-verb and Strunk & White hints
-(beverbs.py and strunk.py, imported on first use; see config/beverbs.lua),
+The same process also serves the be-verb, Strunk & White and style
+hints (beverbs.py, strunk.py and style.py, imported on first use; see config/beverbs.lua),
 answered from a worker thread so a
 slow parse never holds up Grammalecte -- responses can come back out of
 order, matched by id:
-  {"id", "op": "beverbs", "text", "ignore"}
+  {"id", "op": "beverbs", "text", "ignore", "bib": [".bib paths"]}
       -> {"id", "errors": [... as above, with "fix" instead of "suggestions"]}
   {"id", "op": "suggest", "fix": {...}}  -> {"id", "suggestions": [...]}
   either -> {"id", "unavailable": "<why>"} when the prose venv is missing.
@@ -38,12 +38,13 @@ Ignore directives (HTML comments, so invisible in rendered output):
   <!-- grammalecte:ignore-file -->         whole file
   <!-- grammalecte:ignore-file RULE ... -->  those rules in this file
 A line directive applies to the line it's on, or to the next line if it
-stands alone on its own line. Be-verb and Strunk rules are only ignored by
+stands alone on its own line. Be-verb, Strunk and style rules are only ignored by
 name: a bare directive, usually there to quiet a French quotation, leaves
 the English around it hinted.
 """
 
 import json
+import os
 import queue
 import re
 import sys
@@ -193,7 +194,7 @@ ALL = None  # line-ignore value meaning "every rule"
 
 def ignores(rules, rule, style=False):
     """Whether an ignore set (or ALL) covers rule; ALL skips no style
-    (be-verb, Strunk) rule."""
+    (be-verb, Strunk, style) rule."""
     return not style if rules is ALL else rule in rules
 
 
@@ -245,9 +246,96 @@ def check(text, doc_french, ignore):
     return errors
 
 
-def check_beverbs(text, ignore):
+METADATA = re.compile(r"\A\s*(?:---\n.*?\n(?:---|\.\.\.)\n|<!--.*?-->)", re.S)
+
+
+def section_keywords(text):
+    """Lowercase words of the `keywords:` in the first metadata block (YAML
+    front matter or binder's comment), as "a, b" or a YAML list."""
+    m = METADATA.match(text)
+    if not m:
+        return frozenset()
+    k = re.search(r"^keywords:[ \t]*(.*(?:\n[ \t]*-[ \t].*)*)", m.group(), re.M)
+    return frozenset(re.findall(r"[^\W\d_]+", k.group(1).lower())) if k else frozenset()
+
+
+def frequent_words(text):
+    """The document's subject matter: words (and their -s-less forms) used
+    at least 6 times and in 0.3% of all words."""
+    counts = {}
+    found = re.findall(r"[^\W\d_]{4,}", text.lower())
+    for w in found:
+        for form in {w, w.removesuffix("s")}:
+            counts[form] = counts.get(form, 0) + 1
+    least = max(6, 0.003 * len(found))
+    return frozenset(w for w, n in counts.items() if n >= least)
+
+
+BIB_ENTRY = re.compile(r"^@\w+\s*\{\s*([^,\s]+)\s*,(.*?)(?=^@|\Z)", re.S | re.M)
+BIB_NAMES = re.compile(r"^\s*(?:author|editor)\s*=\s*[{\"](.*?)[}\"]\s*,?\s*$", re.M | re.I)
+NARRATIVE_CITE = re.compile(r"(?<![\w@\[-])@([\w:.-]*\w)")
+bib_cache = {}  # path -> (mtime, {citekey: first surname}, {surnames})
+
+
+def read_bib(path):
+    """A .bib file's citekeys -> first author's surname, and every author's
+    and editor's surname (lowercase): the secondary literature's scholars."""
+    try:
+        mtime = os.path.getmtime(path)
+        if path in bib_cache and bib_cache[path][0] == mtime:
+            return bib_cache[path][1:]
+        with open(path, encoding="utf-8") as f:
+            data = f.read()
+    except OSError:
+        return {}, set()
+    keys, names = {}, set()
+    for key, body in BIB_ENTRY.findall(data):
+        for field in BIB_NAMES.findall(body):
+            for person in re.split(r"\s+and\s+", field.replace("{", "").replace("}", "")):
+                last = person.split(",")[0].strip() if "," in person else (person.split() or [""])[-1]
+                if last and last.lower() != "others":
+                    keys.setdefault(key, last)
+                    names.add(last.lower())
+    bib_cache[path] = (mtime, keys, names)
+    return keys, names
+
+
+def name_citations(text, masked, keys):
+    """Writes a narrative citation's surname over its mask, "@jensenFrench1974
+    argues" -> "Jensen argues", so the parse sees a subject (offsets kept).
+    Returns the new text and the (lowercase) names written."""
+    out, names = list(masked), set()
+    for m in NARRATIVE_CITE.finditer(text):
+        if masked[m.start() : m.end()].strip():
+            continue  # not masked: an email address or the like
+        name = keys.get(m.group(1)) or re.match(r"[a-z]*", m.group(1)).group().capitalize()
+        if name and len(name) <= len(m.group()):
+            out[m.start() : m.start() + len(name)] = name
+            names.add(name.lower())
+    return "".join(out), names
+
+
+FOOTNOTE = re.compile(r"\^\[(?:[^\[\]]|\[[^\]]*\])*\]|^\[\^[^\]]+\]:.*$", re.M)
+MODERN = re.compile(r"\b(?:18[5-9]\d|19\d\d|20\d\d)\b")
+NAME = re.compile(r"\b[A-Z][\w’'-]+")
+
+
+def modern_citations(text):
+    """Capitalized words in footnote citations dated 1850 or later, as
+    lowercase: likely scholars, but maybe the editor of a modern edition
+    of a historical actor's work ("Bodin, ... (Paris: Fayard, 1986)")."""
+    names = set()
+    for note in FOOTNOTE.finditer(text):
+        for part in note.group().split(";"):
+            if MODERN.search(part):
+                names |= {w.lower() for w in NAME.findall(part)}
+    return names
+
+
+def check_beverbs(text, ignore, bibs=()):
     import beverbs  # noqa: PLC0415 -- lazy, see the module docstring
     import strunk  # noqa: PLC0415
+    import style  # noqa: PLC0415
 
     file_ignore, line_ignores = directives(text)
     ignore = ignore | (set() if file_ignore is ALL else file_ignore)
@@ -266,7 +354,21 @@ def check_beverbs(text, ignore):
     masked = "".join(joined)
     xy = to_xy(text)
     errors = []
-    for rule, start, end, message, fix in beverbs.check(masked, strunk.rules):
+    exempt = section_keywords(text) | frequent_words(masked)
+    keys, scholars = {}, set()
+    for path in bibs:
+        k, n = read_bib(path)
+        keys.update(k)
+        scholars |= n
+    masked, cited = name_citations(text, masked, keys)
+    scholars |= cited
+
+    unsure = modern_citations(text) - scholars
+
+    def style_rules(doc):
+        return style.rules(doc, exempt, scholars, unsure)
+
+    for rule, start, end, message, fix in beverbs.check(masked, strunk.rules, style_rules):
         lnum, col = xy(start)
         if rule in ignore or (lnum in line_ignores and ignores(line_ignores[lnum], rule, style=True)):
             continue
@@ -282,7 +384,16 @@ def check_beverbs(text, ignore):
                 c["lnum"], c["col"] = xy(c.pop("start"))
                 c["end_lnum"], c["end_col"] = xy(c.pop("end"))
         errors.append(
-            {"lnum": lnum, "col": col, "end_lnum": end_lnum, "end_col": end_col, "rule": rule, "message": message, "fix": fix}
+            {
+                "lnum": lnum,
+                "col": col,
+                "end_lnum": end_lnum,
+                "end_col": end_col,
+                "rule": rule,
+                "source": "be-verb" if rule.startswith("BE_") else "style" if rule in style.RULES else "strunk",
+                "message": message,
+                "fix": fix,
+            }
         )
     return errors
 
@@ -303,7 +414,7 @@ def serve(req):
         if op == "grammar":
             resp["errors"] = check(req["text"], bool(req.get("french")), set(req.get("ignore", [])))
         elif op == "beverbs":
-            resp["errors"] = check_beverbs(req["text"], set(req.get("ignore", [])))
+            resp["errors"] = check_beverbs(req["text"], set(req.get("ignore", [])), req.get("bib", []))
         elif op == "suggest":
             import beverbs  # noqa: PLC0415
 

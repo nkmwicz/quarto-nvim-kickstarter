@@ -23,6 +23,13 @@
 -- fixed rewrites, each offered as its own action; VAGUE_VERB gets the
 -- troponym picker.
 --
+-- And clarity hints (scripts/style.py), source "style": VAGUE_THIS ("This
+-- shows" -> "This refusal shows"), SUBJECT_VERB_GAP, NOUN_STACK, OF_CHAIN,
+-- ECHO (a word three times in two sentences; the section's keywords and
+-- its most frequent words exempt), QUOTE_ENDING and REPORTING_TENSE
+-- (scholars argue, historical actors argued: a scholar is a surname in a
+-- .bib in this or a parent directory, or a narrative @citation).
+--
 -- .md and .qmd files only, not `lang: fr` documents; on open, on save, and
 -- on <leader>zc. <leader>zb toggles the hints for the session.
 -- <leader>zf (and <leader>la): pick a stronger verb or rewrite, or ignore
@@ -56,6 +63,15 @@ local function give_up(why)
   end
 end
 
+-- .bib files in the buffer's directory and every one above it, up to the
+-- home directory: whoever they name is a scholar for REPORTING_TENSE.
+local function bibliographies(buf)
+  local dir = vim.fs.dirname(vim.api.nvim_buf_get_name(buf))
+  return vim.fs.find(function(name)
+    return name:match '%.bib$' ~= nil
+  end, { path = dir, upward = true, stop = vim.uv.os_homedir(), limit = math.huge })
+end
+
 function M.check(buf)
   buf = (buf == nil or buf == 0) and vim.api.nvim_get_current_buf() or buf
   if not M.enabled() or unavailable or not prose_file(buf) or grammalecte.is_french(buf) then
@@ -64,7 +80,7 @@ function M.check(buf)
   end
   local tick = vim.b[buf].changedtick
   local text = table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), '\n')
-  grammalecte.request({ op = 'beverbs', text = text, ignore = grammalecte.read_ignores(buf) }, function(resp)
+  grammalecte.request({ op = 'beverbs', text = text, ignore = grammalecte.read_ignores(buf), bib = bibliographies(buf) }, function(resp)
     if resp.unavailable then
       give_up(resp.unavailable)
       return
@@ -89,7 +105,7 @@ function M.check(buf)
         end_lnum = e.end_lnum,
         end_col = e.end_col,
         severity = vim.diagnostic.severity.HINT,
-        source = e.rule:match '^BE_' and 'be-verb' or 'strunk',
+        source = e.source,
         code = e.rule,
         message = e.message,
         user_data = { fix = fix },
@@ -106,7 +122,7 @@ function M.toggle()
       M.check(buf) -- clears when off
     end
   end
-  vim.notify('[be-verb] be-verb and Strunk hints ' .. (M.enabled() and 'on' or 'off'), vim.log.levels.INFO)
+  vim.notify('[be-verb] be-verb, Strunk and style hints ' .. (M.enabled() and 'on' or 'off'), vim.log.levels.INFO)
 end
 
 -- The be-verb diagnostic under the cursor, else the first on the line.
@@ -217,7 +233,7 @@ function M.code_actions(buf)
     ignore('Ignore ' .. d.code .. ' in this project', function()
       vim.fn.writefile({ d.code }, grammalecte.ignore_file(buf), 'a')
     end),
-    act('Turn be-verb and Strunk hints off (<leader>zb)', M.toggle),
+    act('Turn be-verb, Strunk and style hints off (<leader>zb)', M.toggle),
   })
   return items
 end

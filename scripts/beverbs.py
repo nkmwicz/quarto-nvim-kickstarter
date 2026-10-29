@@ -100,20 +100,28 @@ NEED_VERBS = {"need", "require", "deserve", "want", "merit", "warrant"}
 # What a verb's own noun adds to it: repair, redevelopment, approval...
 NOUN_SUFFIXES = {"", "e", "ment", "ation", "ition", "tion", "sion", "al", "ance", "ence", "ing"}
 
-def quoted(doc):
-    """Whether each token sits inside quotation marks or parentheses. A
-    straight quote opens after a space or bracket and closes otherwise, so
-    one stray '"' doesn't flip the rest of the paragraph."""
-    out, depth = [], 0
-    for tok in doc:
-        t = tok.text
-        opens = t in ("“", "«", "(") or t == '"' and (tok.idx == 0 or doc.text[tok.idx - 1] in " \t\n([{—–")
-        if opens:
+def quoted(doc, parens=True):
+    """Whether each token sits inside quotation marks (or parentheses), by
+    character, since a quote can be glued to its neighbours ('."^[Sagon').
+    A straight quote closes an open one, else opens after a space or
+    bracket; else it's a stray, or closes a curly “ typed straight."""
+    text = doc.text
+    inside, depth, straight = [False] * len(text), 0, False
+    for i, ch in enumerate(text):
+        was = depth > 0 or straight
+        if ch == '"':
+            if straight:
+                straight = False
+            elif i == 0 or text[i - 1] in " \t\n([{—–":
+                straight = True
+            elif depth:
+                depth -= 1
+        elif ch in "“«" or parens and ch == "(":
             depth += 1
-        out.append(depth > 0)
-        if not opens and t in ("”", "»", ")", '"'):
-            depth = max(0, depth - 1)
-    return out
+        elif depth and (ch in "”»" or parens and ch == ")"):
+            depth -= 1
+        inside[i] = was or depth > 0 or straight
+    return [any(inside[tok.idx : tok.idx + len(tok)]) for tok in doc]
 
 
 def end(tok):
