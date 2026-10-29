@@ -255,6 +255,15 @@ def check_beverbs(text, ignore):
     masked, spans = french_spans(text, False)
     for start, end, _ in spans:
         masked = masked[:start] + re.sub(r"[^\n]", " ", masked[start:end]) + masked[end:]
+    # A line masked whole -- a comment or French between two lines of one
+    # paragraph (semantic line breaks) -- would read as the blank line that
+    # ends it: join it to the line above instead.
+    joined, pos = list(masked), 0
+    for i, line in enumerate(text.split("\n")):
+        if i and line.strip() and not masked[pos : pos + len(line)].strip():
+            joined[pos - 1] = " "
+        pos += len(line) + 1
+    masked = "".join(joined)
     xy = to_xy(text)
     errors = []
     for rule, start, end, message, fix in beverbs.check(masked, strunk.rules):
