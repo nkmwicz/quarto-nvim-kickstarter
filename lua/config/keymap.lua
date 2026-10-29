@@ -484,7 +484,7 @@ wk.add({
     { "<leader>op", insert_py_chunk, desc = "[p]ython code chunk" },
     { "<leader>q", group = "[q]uarto" },
     { "<leader>qE", function() require('otter').export(true) end, desc = "[E]xport with overwrite" },
-    { "<leader>qa", ":QuartoActivate<cr>", desc = "[a]ctivate" },
+    { "<leader>qa", function() require('config.otter_fenced').activate(0, true) end, desc = "[a]ctivate code-cell LSPs (fenced languages)" },
     { "<leader>qe", require('otter').export, desc = "[e]xport" },
     { "<leader>qh", ":QuartoHelp ", desc = "[h]elp" },
     { "<leader>qp", ":lua require'quarto'.quartoPreview()<cr>", desc = "[p]review" },

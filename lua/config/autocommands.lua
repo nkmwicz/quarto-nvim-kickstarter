@@ -68,14 +68,12 @@ vim.api.nvim_create_autocmd({"BufReadPost"}, {
   command = "silent !xdg-open % &",
 })
 
--- Auto-activate otter on Quarto files so LSP completions (including @citations)
--- work without needing a manual <leader>qa each time.
-vim.api.nvim_create_autocmd('FileType', {
-  pattern = 'quarto',
-  callback = function()
-    require('otter').activate()
-  end,
-})
+-- Auto-activate otter on Quarto files, for the languages of their fenced
+-- code blocks only (not the HTML comments and YAML front matter, which would
+-- start html-lsp, emmet and yamlls for every prose section). See
+-- config/otter_fenced.lua. (@citation completion is cmp-pandoc-references,
+-- which doesn't need otter.)
+require('config.otter_fenced').setup()
 
 -- otter.nvim's own BufDelete cleanup (otter/init.lua) only wipes the fake
 -- per-language otter buffer, not the keeper.rafts[main_nr] entry itself.

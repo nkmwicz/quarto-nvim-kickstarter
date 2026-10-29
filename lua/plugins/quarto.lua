@@ -6,6 +6,10 @@ return {
     ft = { 'quarto' },
     dev = false,
     opts = {
+      -- Its ftplugin would activate otter for every injected language,
+      -- metadata comments and front matter included; config/otter_fenced.lua
+      -- activates it for fenced code languages instead.
+      lspFeatures = { enabled = false },
       codeRunner = {
         enabled = true,
         default_method = 'molten',

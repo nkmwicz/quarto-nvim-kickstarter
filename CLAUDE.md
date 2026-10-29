@@ -70,7 +70,8 @@ Keymaps are in `lua/config/keymap.lua` and loaded by which-key's config function
 - `<leader><cr>` or `<c-cr>` — send current code cell to Python REPL via vim-slime
 - `<leader>cp` — open new Python terminal split
 - `<m-i>` / `<m-I>` (insert/normal) — insert Python chunk
-- `<leader>qp` — Quarto preview; `<leader>qa` — activate quarto-nvim
+- `<leader>qp` — Quarto preview; `<leader>qa` — re-scan and activate code-cell LSPs
+- Code-cell LSPs (otter.nvim) are activated by `lua/config/otter_fenced.lua` for the languages of **fenced** blocks only (```` ```{python} ````, ```` ```{=html} ````, ```` ``` {.js} ````…), re-scanned on save and `InsertLeave`; servers left serving a removed language are stopped. otter's/quarto-nvim's own activation takes every Treesitter injection, so the binder/research `<!-- -->` metadata (an HTML block) and YAML front matter started html-lsp, emmet, tailwindcss and yamlls for every prose section; quarto-nvim's `lspFeatures.enabled` is off for that reason. Re-activation waits for the old `otter-ls` to exit, since `otter.activate()` otherwise re-attaches to the dying client. @citation completion is `cmp-pandoc-references`, independent of otter.
 - vim-slime target is always a Neovim terminal (`vim.g.slime_target = 'neovim'`)
 - `<leader>mi` — start Molten on the project's Python env (`lua/config/molten.lua`): the nearest uv `.venv` (or `$VIRTUAL_ENV`), else the active micromamba env (`$CONDA_PREFIX`), else a picker over micromamba envs (base and `nvim-host` excluded). Installs `ipykernel` if missing (`uv pip install` / `micromamba install`) and registers a `venv-<project>` / `mamba-<env>` kernelspec if needed, then `:MoltenInit <kernel>`. `<leader>mI` is plain `:MoltenInit` (pick a registered kernel). Molten is a Python remote plugin: if its commands are "not an editor command", run `:UpdateRemotePlugins` with Molten loaded and restart.
 
