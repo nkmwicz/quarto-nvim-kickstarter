@@ -1,24 +1,34 @@
 -- beverbs.lua: be-verb hints for English prose, shown as HINT diagnostics
 -- with source "be-verb" and the kind in the message:
 --   progressive  "was walking"   fix: "trudged", "shuffled", "sauntered"...
---   passive      "was signed" (by Francis)
+--   passive      "was signed" (by Francis)  fix: "Francis signed the treaty"
+--                "needed to be redeveloped"  fix: "needed redeveloping"
 --   copula       "was angry"
 --   existential  "there were"
--- Only progressives get a fix, since the replacement is mechanical: the
--- whole span becomes the simple form of a more specific verb, in the same
--- tense ("had been walking" -> "had trudged", "I'm walking" -> "I trudge").
+-- A progressive's fix is mechanical: the whole span becomes the simple form
+-- of a more specific verb, in the same tense ("had been walking" -> "had
+-- trudged", "I'm walking" -> "I trudge"). A passive gets one only when the
+-- doer is named, or after need/deserve...; copulas and existentials need
+-- rewording by hand.
 --
 -- The work runs in the Grammalecte bridge's process (scripts/beverbs.py,
 -- loaded on the first check; needs scripts/setup_prose_venv.sh), on the
 -- same text Grammalecte sees with the French blanked out instead. Candidates
 -- come from WordNet's troponyms, ranked by Datamuse when online.
 --
+-- The same check runs Strunk & White's rules (scripts/strunk.py) on the
+-- same parse, as HINTs with source "strunk": PARENTHETIC_COMMA (S&W 3),
+-- COMMA_SPLICE (5), DANGLING_MODIFIER (11), NEGATIVE_FORM (15),
+-- NOMINALIZATION and VAGUE_VERB (16), WEAK_ENDING (22). Most come with
+-- fixed rewrites, each offered as its own action; VAGUE_VERB gets the
+-- troponym picker.
+--
 -- .md and .qmd files only, not `lang: fr` documents; on open, on save, and
 -- on <leader>zc. <leader>zb toggles the hints for the session.
--- <leader>zf (and <leader>la): pick a stronger verb, or ignore the rule --
--- by name only (BE_PROGRESSIVE, BE_PASSIVE, BE_COPULA, BE_EXISTENTIAL) in
--- the usual grammalecte:ignore comments or .grammalecte-ignore; a bare
--- `<!-- grammalecte:ignore -->` leaves be-verbs hinted.
+-- <leader>zf (and <leader>la): pick a stronger verb or rewrite, or ignore
+-- the rule -- by name only (BE_PASSIVE, COMMA_SPLICE...) in the usual
+-- grammalecte:ignore comments or .grammalecte-ignore; a bare
+-- `<!-- grammalecte:ignore -->` leaves these hinted.
 
 local M = {}
 
@@ -63,18 +73,26 @@ function M.check(buf)
     if not M.enabled() or not vim.api.nvim_buf_is_valid(buf) or vim.b[buf].changedtick ~= tick then
       return
     end
+    local function text_at(r)
+      return table.concat(vim.api.nvim_buf_get_text(buf, r.lnum, r.col, r.end_lnum, r.end_col, {}), '\n')
+    end
     local diags = {}
     for _, e in ipairs(resp.errors or {}) do
+      local fix = e.fix ~= vim.NIL and e.fix or nil
+      -- What each rewrite replaces, to refuse it once that text has changed.
+      for _, c in ipairs(fix and fix.choices or {}) do
+        c.original = text_at(c.lnum and c or e)
+      end
       table.insert(diags, {
         lnum = e.lnum,
         col = e.col,
         end_lnum = e.end_lnum,
         end_col = e.end_col,
         severity = vim.diagnostic.severity.HINT,
-        source = 'be-verb',
+        source = e.rule:match '^BE_' and 'be-verb' or 'strunk',
         code = e.rule,
         message = e.message,
-        user_data = { fix = e.fix ~= vim.NIL and e.fix or nil },
+        user_data = { fix = fix },
       })
     end
     vim.diagnostic.set(ns, buf, diags)
@@ -88,7 +106,7 @@ function M.toggle()
       M.check(buf) -- clears when off
     end
   end
-  vim.notify('[be-verb] hints ' .. (M.enabled() and 'on' or 'off'), vim.log.levels.INFO)
+  vim.notify('[be-verb] be-verb and Strunk hints ' .. (M.enabled() and 'on' or 'off'), vim.log.levels.INFO)
 end
 
 -- The be-verb diagnostic under the cursor, else the first on the line.
@@ -155,7 +173,7 @@ function M.code_actions(buf)
     return {}
   end
   local function act(label, fn)
-    return { label = '⟨be-verb⟩ ' .. label, fn = fn }
+    return { label = '⟨' .. d.source .. '⟩ ' .. label, fn = fn }
   end
   local function ignore(label, fn)
     return act(label, function()
@@ -164,11 +182,28 @@ function M.code_actions(buf)
     end)
   end
   local items = {}
-  if d.user_data.fix then
+  local fix = d.user_data.fix
+  if fix and fix.lemma then
     table.insert(
       items,
       act('Replace ' .. d.message:match '".*"' .. ' with a stronger verb…', function()
         pick_verb(buf, d)
+      end)
+    )
+  end
+  -- Fixed rewrites, each over the hint's span or its own range.
+  for _, c in ipairs(fix and fix.choices or {}) do
+    table.insert(
+      items,
+      act(c.note .. ': "' .. vim.trim(c.text) .. '"', function()
+        local r = c.lnum and c or d
+        local ok, now = pcall(vim.api.nvim_buf_get_text, buf, r.lnum, r.col, r.end_lnum, r.end_col, {})
+        if not ok or table.concat(now, '\n') ~= c.original then
+          vim.notify('[' .. d.source .. '] the text has changed; re-check with <leader>zc', vim.log.levels.WARN)
+          return
+        end
+        vim.api.nvim_buf_set_text(buf, r.lnum, r.col, r.end_lnum, r.end_col, vim.split(match_case(c.original, c.text), '\n'))
+        M.check(buf)
       end)
     )
   end
@@ -182,7 +217,7 @@ function M.code_actions(buf)
     ignore('Ignore ' .. d.code .. ' in this project', function()
       vim.fn.writefile({ d.code }, grammalecte.ignore_file(buf), 'a')
     end),
-    act('Turn be-verb hints off (<leader>zb)', M.toggle),
+    act('Turn be-verb and Strunk hints off (<leader>zb)', M.toggle),
   })
   return items
 end

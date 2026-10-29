@@ -13,10 +13,12 @@ them when the network is up.
 
 Kinds, with their rule ids (ignorable like any Grammalecte rule):
   BE_PROGRESSIVE  "was walking"  -> fix: "trudged", "shuffled", ...
-  BE_PASSIVE      "was signed" (by Francis)
+  BE_PASSIVE      "was signed" (by Francis) -> fix: "Francis signed the treaty"
+                  "needed to be redeveloped" -> fix: "needed redeveloping"
   BE_COPULA       "was angry"
   BE_EXISTENTIAL  "there were"
-Only progressives get a fix; the others need rewording by hand.
+A passive gets a fix only when the doer is named ("by Francis") or after
+need/deserve...; copulas and existentials need rewording by hand.
 """
 
 import json
@@ -88,10 +90,136 @@ def progressive_fix(be, verb, doc):
     }
 
 
+# Pronouns trade case when subject and agent swap: "he was seen by them" ->
+# "they saw him".
+TO_OBJECT = {"i": "me", "he": "him", "she": "her", "we": "us", "they": "them", "who": "whom"}
+TO_SUBJECT = {o: s for s, o in TO_OBJECT.items()}
+RELATIVES = {"which", "that", "who"}
+# "needed to be redeveloped" -> "needed redeveloping", "needed redevelopment".
+NEED_VERBS = {"need", "require", "deserve", "want", "merit", "warrant"}
+# What a verb's own noun adds to it: repair, redevelopment, approval...
+NOUN_SUFFIXES = {"", "e", "ment", "ation", "ition", "tion", "sion", "al", "ance", "ence", "ing"}
+
+def quoted(doc):
+    """Whether each token sits inside quotation marks or parentheses. A
+    straight quote opens after a space or bracket and closes otherwise, so
+    one stray '"' doesn't flip the rest of the paragraph."""
+    out, depth = [], 0
+    for tok in doc:
+        t = tok.text
+        opens = t in ("“", "«", "(") or t == '"' and (tok.idx == 0 or doc.text[tok.idx - 1] in " \t\n([{—–")
+        if opens:
+            depth += 1
+        out.append(depth > 0)
+        if not opens and t in ("”", "»", ")", '"'):
+            depth = max(0, depth - 1)
+    return out
+
+
+def end(tok):
+    return tok.idx + len(tok)
+
+
+def recase(tok, table):
+    """tok's text, a pronoun put in the other case."""
+    word = table.get(tok.lower_)
+    return tok.text if word is None else "I" if word == "i" else word
+
+
+def plural(tok):
+    return tok.tag_ in ("NNS", "NNPS") or tok.lower_ in ("i", "we", "you", "they") or any(c.dep_ == "conj" for c in tok.children)
+
+
+def verb_nouns(lemma):
+    """The verb's own nouns, by WordNet's derivations: redevelop ->
+    redevelopment, approve -> approval; not its doers (approver)."""
+    stem = lemma[:-1] if lemma.endswith("e") else lemma
+    out = []
+    for sense in WORDNET.senses(lemma, pos="v")[:3]:
+        for d in sense.get_related("derivation"):
+            word = d.word()
+            noun = word.lemma()
+            if word.pos == "n" and noun.startswith(stem) and noun[len(stem) :] in NOUN_SUFFIXES and noun not in out:
+                out.append(noun)
+    return out
+
+
+def passive_fix(be, verb, doc, q):
+    """Active rewrites for the passive `be ... verb`, as {"choices"}, or None:
+    "the treaty was signed by Francis" -> "Francis signed the treaty"
+    (only when the doer is named), "needed to be redeveloped" ->
+    "needed redeveloping". None inside quotations or parentheses."""
+    if q[be.i] or any(c.dep_ in ("neg", "conj") for c in verb.children):
+        return None
+    if verb.dep_ == "xcomp" and verb.head.lemma_ in NEED_VERBS:
+        to = doc[be.i - 1] if be.i else None
+        if to is None or to.lower_ != "to" or any(not t.is_space for t in doc[be.i + 1 : verb.i]):
+            return None
+        forms = [inflect(verb.lemma_.lower(), "VBG")] + verb_nouns(verb.lemma_.lower())
+        notes = ["gerund"] + ["noun"] * (len(forms) - 1)
+        return {"choices": [{"text": f, "note": n, "start": to.idx, "end": end(verb)} for f, n in zip(forms, notes)]}
+
+    agent = next((c for c in verb.children if c.dep_ == "agent"), None)
+    subj = next((c for c in verb.children if c.dep_ == "nsubjpass"), None)
+    objs = [c for c in agent.children if c.dep_ == "pobj"] if agent else []
+    if subj is None or len(objs) != 1 or subj.i > be.i:
+        return None
+    obj = objs[0]
+    # Only plain doers: spaCy hangs stray phrases on them ("by a focus on
+    # the rivalry", "by the author without any AI assistance"), and
+    # "not by X but by Y", "by Estienne, the royal printer" don't flip.
+    span = doc[subj.left_edge.i : agent.right_edge.i + 1]
+    if any(c.dep_ == "prep" and c.lower_ != "of" for c in obj.children):
+        return None
+    if any(t.lower_ in ("not", "but") for t in doc[verb.i + 1 : agent.right_edge.i + 1]) or "," in doc[agent.i : agent.right_edge.i + 1].text:
+        return None
+    if any(c in span.text for c in '[]()^"“”«»'):
+        return None
+    # The verb group, in the tense of the passive and agreeing with its new
+    # subject: was signed -> signed, is -> signs/sign, has been -> has/have,
+    # will be -> will sign.
+    auxes = [c for c in verb.children if c.dep_ in ("aux", "auxpass") and c.i < verb.i]
+    words = [a.lower_ for a in auxes]
+    many = plural(obj)
+    if words in (["was"], ["were"]):
+        group = [inflect(verb.lemma_, "VBD")]
+    elif words in (["is"], ["are"], ["am"]):
+        group = [inflect(verb.lemma_, "VBP" if many else "VBZ")]
+    elif len(words) == 2 and words[0] in ("has", "have", "had") and words[1] == "been":
+        group = ["had" if words[0] == "had" else "have" if many else "has", verb.text]
+    elif len(words) == 2 and auxes[0].tag_ == "MD" and words[1] == "be":
+        group = [auxes[0].text, inflect(verb.lemma_, "VB")]
+    else:
+        return None
+    # Only adverbs may sit between the subject and the verb; they stay
+    # before the verb ("had been quickly burned" -> "had quickly burned").
+    between = [t for t in doc[subj.right_edge.i + 1 : verb.i] if not t.is_space and t.i not in {a.i for a in auxes}]
+    if any(t.dep_ != "advmod" or t.head.i != verb.i for t in between):
+        return None
+    group[-1:-1] = [t.text for t in between]
+
+    doer = recase(obj, TO_SUBJECT) if obj.left_edge.i == agent.right_edge.i else doc[obj.left_edge.i : agent.right_edge.i + 1].text
+    middle = doc.text[end(verb) : agent.idx].rstrip()  # "taken over by" -> "took ... over"
+
+    if subj.lower_ in RELATIVES and subj.left_edge.i == subj.right_edge.i:
+        # "which was built by the Venetians" -> "which the Venetians built"
+        text = " ".join([recase(subj, TO_OBJECT), doer, *group]) + middle
+    else:
+        thing = recase(subj, TO_OBJECT) if subj.left_edge.i == subj.right_edge.i else doc[subj.left_edge.i : subj.right_edge.i + 1].text
+        first = subj.left_edge
+        if first.is_sent_start and first.pos_ != "PROPN" and first.text != "I":
+            thing = thing[:1].lower() + thing[1:]
+        text = " ".join([doer, *group, thing]) + middle
+    # A reordered span can't keep its line breaks where they were.
+    text = re.sub(r"\s+", " ", text).strip()
+    return {"choices": [{"text": text, "note": "active voice", "start": subj.left_edge.idx, "end": end(agent.right_edge)}]}
+
+
 def be_verbs(doc):
     """Yields (rule, start, end, message, fix) for the be-verbs in doc, as
     char offsets into its text."""
     seen = set()  # (rule, head) -- "was being built" is one passive, not two
+    q = quoted(doc)
     for tok in doc:
         if tok.lemma_ != "be" or tok.pos_ not in ("AUX", "VERB"):
             continue
@@ -122,23 +250,31 @@ def be_verbs(doc):
             agent = [c for c in head.children if c.dep_ == "agent"]
             if agent:
                 message += " (" + " ".join(t.text for t in agent[0].subtree) + ")"
-        fix = progressive_fix(tok, head, doc) if rule == "BE_PROGRESSIVE" else None
+        fix = progressive_fix(tok, head, doc) if rule == "BE_PROGRESSIVE" else passive_fix(tok, head, doc, q) if rule == "BE_PASSIVE" else None
         yield rule, span.start_char, span.end_char, message, fix
 
 
-def check(masked):
+def check(masked, *more):
     """Be-verbs in `masked` (the bridge's text with code, markup and French
-    blanked out), as (rule, start, end, message, fix) in char offsets."""
+    blanked out), as (rule, start, end, message, fix) in char offsets. Each
+    of `more` (strunk.rules) is run on the same parse, so then every
+    paragraph is parsed, not only those with a be-verb."""
     paras, pos = [], 0
     for para in re.split(r"(\n[ \t]*\n)", masked):
-        if BE_FORMS.search(para):
+        if BE_FORMS.search(para) if not more else re.search(r"[A-Za-z]", para):
             # Semantic line breaks: a sentence runs across lines.
             paras.append((para.replace("\n", " "), pos))
         pos += len(para)
     hits = []
     for doc, offset in NLP.pipe(paras, as_tuples=True, batch_size=32):
-        for rule, start, end, message, fix in be_verbs(doc):
-            hits.append((rule, offset + start, offset + end, message, fix))
+        for rules in (be_verbs, *more):
+            for rule, start, end, message, fix in rules(doc):
+                if fix and "choices" in fix:
+                    for c in fix["choices"]:
+                        if "start" in c:
+                            c["start"] += offset
+                            c["end"] += offset
+                hits.append((rule, offset + start, offset + end, message, fix))
     return hits
 
 
@@ -207,15 +343,15 @@ def inflect(phrase, tag):
 
 
 def suggest(fix):
-    """Replacements for a progressive: the same verb in its simple form,
-    then Datamuse's ranking, then the rest of WordNet's troponyms (single
+    """Replacements for a progressive: the same verb in its simple form
+    (not for a vague verb -- fix["keep"] false), then Datamuse's ranking, then the rest of WordNet's troponyms (single
     words before phrasal verbs -- WordNet has no ranking of its own). Each is
     {"text", "word", "note"}: text replaces the whole span."""
     lemma, tag = fix["lemma"], fix["tag"]
     prefix = (" " if fix.get("contraction") else "") + (fix["between"] + " " if fix["between"] else "")
     glosses = troponyms(lemma)
     words = [lemma] + datamuse(lemma, fix.get("lc"), fix.get("rc")) + sorted(glosses, key=lambda w: " " in w)
-    out, seen = [], set()
+    out, seen = [], set() if fix.get("keep", True) else {lemma}
     for word in words:
         word = word.replace("_", " ")
         if word in seen:

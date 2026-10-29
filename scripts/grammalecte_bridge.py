@@ -10,8 +10,9 @@ Request:  {"id": n, "text": "<whole buffer>", "french": bool,
 Response: {"id": n, "errors": [{"lnum", "col", "end_lnum", "end_col",
            "rule", "message", "suggestions"}]}   (0-based, byte columns)
 
-The same process also serves the be-verb hints (beverbs.py, imported on
-first use; see config/beverbs.lua), answered from a worker thread so a
+The same process also serves the be-verb and Strunk & White hints
+(beverbs.py and strunk.py, imported on first use; see config/beverbs.lua),
+answered from a worker thread so a
 slow parse never holds up Grammalecte -- responses can come back out of
 order, matched by id:
   {"id", "op": "beverbs", "text", "ignore"}
@@ -37,7 +38,7 @@ Ignore directives (HTML comments, so invisible in rendered output):
   <!-- grammalecte:ignore-file -->         whole file
   <!-- grammalecte:ignore-file RULE ... -->  those rules in this file
 A line directive applies to the line it's on, or to the next line if it
-stands alone on its own line. Be-verb rules (BE_*) are only ignored by
+stands alone on its own line. Be-verb and Strunk rules are only ignored by
 name: a bare directive, usually there to quiet a French quotation, leaves
 the English around it hinted.
 """
@@ -190,9 +191,10 @@ def to_xy(text):
 ALL = None  # line-ignore value meaning "every rule"
 
 
-def ignores(rules, rule):
-    """Whether an ignore set (or ALL) covers rule; ALL skips be-verb rules."""
-    return not rule.startswith("BE_") if rules is ALL else rule in rules
+def ignores(rules, rule, style=False):
+    """Whether an ignore set (or ALL) covers rule; ALL skips no style
+    (be-verb, Strunk) rule."""
+    return not style if rules is ALL else rule in rules
 
 
 def directives(text):
@@ -245,6 +247,7 @@ def check(text, doc_french, ignore):
 
 def check_beverbs(text, ignore):
     import beverbs  # noqa: PLC0415 -- lazy, see the module docstring
+    import strunk  # noqa: PLC0415
 
     file_ignore, line_ignores = directives(text)
     ignore = ignore | (set() if file_ignore is ALL else file_ignore)
@@ -254,11 +257,21 @@ def check_beverbs(text, ignore):
         masked = masked[:start] + re.sub(r"[^\n]", " ", masked[start:end]) + masked[end:]
     xy = to_xy(text)
     errors = []
-    for rule, start, end, message, fix in beverbs.check(masked):
+    for rule, start, end, message, fix in beverbs.check(masked, strunk.rules):
         lnum, col = xy(start)
-        if rule in ignore or (lnum in line_ignores and ignores(line_ignores[lnum], rule)):
+        if rule in ignore or (lnum in line_ignores and ignores(line_ignores[lnum], rule, style=True)):
             continue
         end_lnum, end_col = xy(end)
+        if fix and "choices" in fix:
+            # A rewrite over masked text (a citation, comment, footnote
+            # marker...) would delete it: drop those.
+            fix["choices"] = [c for c in fix["choices"] if masked[c.get("start", start) : c.get("end", end)] == text[c.get("start", start) : c.get("end", end)]]
+            if not fix["choices"]:
+                fix = None
+        for c in (fix or {}).get("choices", []):
+            if "start" in c:
+                c["lnum"], c["col"] = xy(c.pop("start"))
+                c["end_lnum"], c["end_col"] = xy(c.pop("end"))
         errors.append(
             {"lnum": lnum, "col": col, "end_lnum": end_lnum, "end_col": end_col, "rule": rule, "message": message, "fix": fix}
         )
