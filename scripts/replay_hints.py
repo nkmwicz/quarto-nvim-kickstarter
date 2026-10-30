@@ -1,12 +1,12 @@
 """Re-checks the hint log (lua/config/hintlog.lua) with the current rules.
 
-    replay_hints.py [LOG]    (default: ~/.local/share/nvim/prose-hints.jsonl)
+    replay_hints.py [LOG]    (default: ./.prose-hints.jsonl, a project root's)
 
 Each entry holds the whole document as it was when logged, so the check runs
 in the same context: the same frequent words for ECHO, the same footnotes and
-.bib files for REPORTING_TENSE. A false positive is fixed once its rule no
-longer fires over the logged range, a false negative once it does; an OTHER
-entry lists whatever fires there now. Prints a table per rule, then the
+.bib files (relative to the log's directory) for REPORTING_TENSE. A false
+positive is fixed once its rule no longer fires over the logged range, a
+false negative once it does; an OTHER entry lists whatever fires there now. Prints a table per rule, then the
 entries still wrong; exits 1 if any are.
 """
 
@@ -17,9 +17,6 @@ import sys
 from collections import Counter
 
 BRIDGE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "grammalecte_bridge.py")
-DEFAULT = os.path.join(
-    os.environ.get("XDG_DATA_HOME", os.path.expanduser("~/.local/share")), "nvim", "prose-hints.jsonl"
-)
 
 
 def overlaps(e, r):
@@ -36,11 +33,21 @@ def short(s, n=70):
 
 
 def main():
-    path = sys.argv[1] if len(sys.argv) > 1 else DEFAULT
+    path = sys.argv[1] if len(sys.argv) > 1 else ".prose-hints.jsonl"
+    root = os.path.dirname(os.path.abspath(path))
     with open(path, encoding="utf-8") as f:
         entries = [json.loads(line) for line in f if line.strip()]
     reqs = "".join(
-        json.dumps({"id": i, "op": "beverbs", "text": e["text"], "ignore": [], "bib": e.get("bib", [])}) + "\n"
+        json.dumps(
+            {
+                "id": i,
+                "op": "beverbs",
+                "text": e["text"],
+                "ignore": [],
+                "bib": [os.path.join(root, b) for b in e.get("bib", [])],
+            }
+        )
+        + "\n"
         for i, e in enumerate(entries)
     )
     out = subprocess.run([sys.executable, BRIDGE], input=reqs, capture_output=True, text=True, check=False)

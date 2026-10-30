@@ -7,13 +7,13 @@
 -- Each entry keeps the whole buffer as it was (an echo or a reporting tense
 -- depends on the rest of the document), so scripts/replay_hints.py can
 -- re-run the check in the same context and say which entries the current
--- rules still get wrong (<leader>zr). The log is stdpath('data')/
--- prose-hints.jsonl, outside this public repo, since it holds unpublished
--- prose. A logged false positive stays hidden while its line reads the same.
+-- rules still get wrong (<leader>zr). The log is .prose-hints.jsonl at the
+-- project root (the .grammalecte-ignore one), so it travels with the
+-- manuscript's own repo and never with this public one; paths in it are
+-- relative to that root, the same on every machine. A logged false positive
+-- stays hidden while its line reads the same.
 
 local M = {}
-
-M.path = vim.fn.stdpath 'data' .. '/prose-hints.jsonl'
 
 local replay = vim.fn.stdpath 'config' .. '/scripts/replay_hints.py'
 
@@ -42,34 +42,46 @@ M.RULES = {
   'OTHER',
 }
 
+-- The project root, and the buffer's file relative to it.
+local function where(buf)
+  local root = vim.fs.dirname(require('config.grammalecte').ignore_file(buf))
+  local file = vim.api.nvim_buf_get_name(buf)
+  return root, vim.fs.relpath(root, file) or file
+end
+
+function M.log_file(buf)
+  return (where(buf)) .. '/.prose-hints.jsonl'
+end
+
 local function key(file, rule, line, flagged)
   return table.concat({ file, rule, vim.trim(line), flagged }, '\0')
 end
 
--- Logged false positives, re-read when the log changes.
-local cache = { mtime = nil, hidden = {} }
+-- Each log's false positives, re-read when it changes.
+local cache = {} -- log path -> { mtime, hidden }
 
-local function hidden_set()
-  local stat = vim.uv.fs_stat(M.path)
+local function hidden_set(path)
+  local stat = vim.uv.fs_stat(path)
   local mtime = stat and (stat.mtime.sec .. '.' .. stat.mtime.nsec)
-  if mtime == cache.mtime then
-    return cache.hidden
+  if cache[path] and cache[path].mtime == mtime then
+    return cache[path].hidden
   end
   local hidden = {}
-  for _, l in ipairs(stat and vim.fn.readfile(M.path) or {}) do
+  for _, l in ipairs(stat and vim.fn.readfile(path) or {}) do
     local ok, e = pcall(vim.json.decode, l)
     if ok and e.kind == 'false_positive' then
       hidden[key(e.file, e.rule, e.line, e.flagged)] = true
     end
   end
-  cache = { mtime = mtime, hidden = hidden }
+  cache[path] = { mtime = mtime, hidden = hidden }
   return hidden
 end
 
 -- Whether a hint (rule over `flagged` on line lnum) was logged as wrong.
 function M.hidden(buf, rule, lnum, flagged)
   local line = vim.api.nvim_buf_get_lines(buf, lnum, lnum + 1, false)[1] or ''
-  return hidden_set()[key(vim.api.nvim_buf_get_name(buf), rule, line, flagged)] == true
+  local _, file = where(buf)
+  return hidden_set(M.log_file(buf))[key(file, rule, line, flagged)] == true
 end
 
 -- The lines from the blank line above lnum to the one below.
@@ -92,15 +104,19 @@ local function record(buf, r, done)
       return
     end
     local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+    local root, file = where(buf)
     r.note = note ~= '' and note or nil
     r.time = os.date '%Y-%m-%d %H:%M'
-    r.file = vim.api.nvim_buf_get_name(buf)
+    r.file = file
     r.line = lines[r.lnum + 1]
     r.flagged = table.concat(vim.api.nvim_buf_get_text(buf, r.lnum, r.col, r.end_lnum, r.end_col, {}), '\n')
     r.paragraph = paragraph(lines, r.lnum)
     r.text = table.concat(lines, '\n')
-    r.bib = require('config.beverbs').bibliographies(buf)
-    vim.fn.writefile({ vim.json.encode(r) }, M.path, 'a')
+    -- Relative too; one above the root stays absolute.
+    r.bib = vim.tbl_map(function(bib)
+      return vim.fs.relpath(root, bib) or bib
+    end, require('config.beverbs').bibliographies(buf))
+    vim.fn.writefile({ vim.json.encode(r) }, M.log_file(buf), 'a')
     vim.notify('[hintlog] logged ' .. r.rule .. ' (' .. r.kind:gsub('_', ' ') .. ')', vim.log.levels.INFO)
     if done then
       done()
@@ -147,14 +163,16 @@ function M.missed()
   end)
 end
 
--- Re-checks every logged entry with the current rules, in a split.
+-- Re-checks every entry in this project's log with the current rules, in a
+-- split.
 function M.replay()
-  if vim.fn.filereadable(M.path) == 0 then
-    vim.notify('[hintlog] nothing logged yet', vim.log.levels.INFO)
+  local log = M.log_file(0)
+  if vim.fn.filereadable(log) == 0 then
+    vim.notify('[hintlog] nothing logged in this project yet', vim.log.levels.INFO)
     return
   end
   vim.cmd 'botright new'
-  vim.fn.jobstart({ require('config.grammalecte').python(), replay, M.path }, { term = true })
+  vim.fn.jobstart({ require('config.grammalecte').python(), replay, log }, { term = true })
 end
 
 return M
