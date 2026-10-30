@@ -358,6 +358,7 @@ wk.add({
     { "<leader>p", '"_dP', desc = "replace without overwriting reg", mode = "v" },
     { "<leader>zd", function() require('config.dict').define() end, desc = "[d]efine selection (dict)", mode = "v" },
     { "<leader>zt", function() require('config.dict').thesaurus() end, desc = "[t]hesaurus for selection (ctrl-y swaps it in)", mode = "v" },
+    { "<leader>zm", function() require('config.hintlog').missed() end, desc = "log a [m]issed hint over the selection", mode = "v" },
 }, { mode = 'v' })
 
 -- insert mode
@@ -518,6 +519,9 @@ wk.add({
     { "<leader>zc", function() require('config.grammalecte').check(); require('config.beverbs').check() end, desc = "[c]heck grammar now (French, be-verbs, Strunk, style)" },
     { "<leader>zf", function() require('config.grammalecte').fix() end, desc = "[f]ix grammar error / stronger verb (or ignore rule)" },
     { "<leader>zb", function() require('config.beverbs').toggle() end, desc = "toggle [b]e-verb, Strunk & style hints" },
+    -- A log of wrong/missed hints to tune the rules; see config/hintlog.lua.
+    { "<leader>zm", function() require('config.hintlog').missed() end, desc = "log a [m]issed hint on this line" },
+    { "<leader>zr", function() require('config.hintlog').replay() end, desc = "[r]eplay logged hints against the current rules" },
   }
 }, { mode = 'n'})
 

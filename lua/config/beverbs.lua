@@ -38,11 +38,14 @@
 -- <leader>zf (and <leader>la): pick a stronger verb or rewrite, or ignore
 -- the rule -- by name only (BE_PASSIVE, COMMA_SPLICE...) in the usual
 -- grammalecte:ignore comments or .grammalecte-ignore; a bare
--- `<!-- grammalecte:ignore -->` leaves these hinted.
+-- `<!-- grammalecte:ignore -->` leaves these hinted. A wrong hint can be
+-- logged instead ("Wrong hint" in the same actions), and a missed one with
+-- <leader>zm, to tune the rules against: see config/hintlog.lua.
 
 local M = {}
 
 local grammalecte = require 'config.grammalecte'
+local hintlog = require 'config.hintlog'
 local ns = vim.api.nvim_create_namespace 'beverbs'
 
 local unavailable = false -- prose venv missing; set once, stops requests
@@ -68,7 +71,7 @@ end
 
 -- .bib files in the buffer's directory and every one above it, up to the
 -- home directory: whoever they name is a scholar for REPORTING_TENSE.
-local function bibliographies(buf)
+function M.bibliographies(buf)
   local dir = vim.fs.dirname(vim.api.nvim_buf_get_name(buf))
   return vim.fs.find(function(name)
     return name:match '%.bib$' ~= nil
@@ -83,7 +86,7 @@ function M.check(buf)
   end
   local tick = vim.b[buf].changedtick
   local text = table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), '\n')
-  grammalecte.request({ op = 'beverbs', text = text, ignore = grammalecte.read_ignores(buf), bib = bibliographies(buf) }, function(resp)
+  grammalecte.request({ op = 'beverbs', text = text, ignore = grammalecte.read_ignores(buf), bib = M.bibliographies(buf) }, function(resp)
     if resp.unavailable then
       give_up(resp.unavailable)
       return
@@ -102,17 +105,19 @@ function M.check(buf)
       for _, c in ipairs(fix and fix.choices or {}) do
         c.original = text_at(c.lnum and c or e)
       end
-      table.insert(diags, {
-        lnum = e.lnum,
-        col = e.col,
-        end_lnum = e.end_lnum,
-        end_col = e.end_col,
-        severity = vim.diagnostic.severity.HINT,
-        source = e.source,
-        code = e.rule,
-        message = e.message,
-        user_data = { fix = fix },
-      })
+      if not hintlog.hidden(buf, e.rule, e.lnum, text_at(e)) then
+        table.insert(diags, {
+          lnum = e.lnum,
+          col = e.col,
+          end_lnum = e.end_lnum,
+          end_col = e.end_col,
+          severity = vim.diagnostic.severity.HINT,
+          source = e.source,
+          code = e.rule,
+          message = e.message,
+          user_data = { fix = fix },
+        })
+      end
     end
     vim.diagnostic.set(ns, buf, diags)
   end)
@@ -227,6 +232,9 @@ function M.code_actions(buf)
     )
   end
   vim.list_extend(items, {
+    act('Wrong hint: log ' .. d.code .. ' as a false positive and hide it', function()
+      hintlog.false_positive(buf, d)
+    end),
     ignore('Ignore ' .. d.code .. ' on this line', function()
       grammalecte.ignore_on_line(buf, d.lnum, d.code)
     end),
