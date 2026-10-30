@@ -4,7 +4,7 @@ the same spaCy parse as the be-verbs (so imported lazily with them).
 Rules, by their number in The Elements of Style (ignorable by id like any
 Grammalecte rule):
   PARENTHETIC_COMMA  3   "My brother, a soldier came home"     -> add the comma
-  COMMA_SPLICE       5   "It is late, we must go"              -> ";" / "." / ", and"
+  COMMA_SPLICE       5   "It is nearly dark, we cannot reach town" -> ";" / "." / ", and"
   DANGLING_MODIFIER  11  "Walking home, the rain began"
   NEGATIVE_FORM      15  "was not honest" -> "was dishonest", "did not remember" -> "forgot"
   NOMINALIZATION     16  "made a decision" -> "decided"
@@ -25,7 +25,7 @@ those into line/column).
 
 import re
 
-from beverbs import WORDNET, end, inflect, quoted, word_near
+from beverbs import WORDNET, LIGHT_VERBS, NOMINAL_SUFFIXES, end, inflect, nominal_verbs, passive_fix, quoted, word_near
 
 SUBJECTS = {"nsubj", "nsubjpass", "expl", "csubj", "csubjpass"}
 WH_TAGS = {"WDT", "WP", "WP$", "WRB"}
@@ -72,6 +72,10 @@ STOCK_PARTICIPLES = {
     "follow", "give", "grant", "include", "judge", "own", "provide", "regard", "speak", "suppose",
 }  # fmt: skip
 ANIMATE_LEXFILES = {"noun.person", "noun.animal", "noun.group"}
+# "Having read the dispatches, the alliance appears...": a research act on
+# an observer's verb, whose doer is the author.
+RESEARCH_LEXFILES = {"verb.cognition", "verb.perception"}
+OBSERVED_VERBS = {"appear", "seem", "look", "emerge", "prove"}
 
 # "did not X" -> one positive verb. A list rather than WordNet's antonyms,
 # which turn "did not go to Paris" into "came" and "did not live" into "died".
@@ -86,8 +90,6 @@ VERB_ANTONYMS = {
 DO_TAG = {"did": "VBD", "does": "VBZ", "do": "VBP"}
 UNCONTRACT = {"ca": "can", "wo": "will", "sha": "shall"}  # "can't" is "ca" + "n't"
 
-LIGHT_VERBS = {"make", "take", "give", "conduct", "perform", "reach", "undertake"}
-NOMINAL_SUFFIXES = ("tion", "sion", "ment", "ance", "ence", "ancy", "ency", "sis", "ure", "al")
 
 # General verbs with more specific troponyms. Not "go"/"come": a historian's
 # "went to Rome" is concrete enough.
@@ -221,6 +223,13 @@ def has_subject(v):
     return any(c.dep_ in SUBJECTS and c.i < v.i for c in v.children)
 
 
+def parenthetical(v, other):
+    """Whether v is a bare reporting clause on the clause `other`: "he came
+    home, I think", not "Braudel argues that..., his argument has been..."
+    or "she knew that..., she said nothing", which report something else."""
+    return v.lemma_ in REPORTING and not any(x.dep_ in ("ccomp", "dobj", "xcomp") and x.i != other.i for x in v.children)
+
+
 def splices(sent, q):
     doc = sent.doc
     for c in sent:
@@ -231,7 +240,7 @@ def splices(sent, q):
             continue
         if any(x.dep_ in ("cc", "preconj") for x in (*h.children, *c.children)):
             continue  # "I came, I saw, and I conquered"
-        if c.dep_ != "conj" and (h.lemma_ in REPORTING or c.lemma_ in REPORTING):
+        if c.dep_ != "conj" and (parenthetical(h, c) or parenthetical(c, h)):
             continue
         # spaCy may hang either clause off the other.
         if c.i < h.i:
@@ -241,6 +250,8 @@ def splices(sent, q):
                 continue
         else:
             nxt = c.left_edge
+            if nxt.text == ",":  # the comma itself may hang on the clause
+                nxt = next_word(doc, nxt.i)
             comma = prev_word(doc, nxt.i)
         if comma is None or comma.text != "," or q[comma.i] or comma.i < sent.start:
             continue
@@ -270,15 +281,23 @@ def splices(sent, q):
 # --- 11: dangling participles ----------------------------------------------
 
 
-def animate(tok):
-    """Whether tok could be the doer of an action. Proper nouns count:
-    "Seeking allies, France turned to the Porte" is how history is written."""
+def animate(tok, senses=3):
+    """Whether tok could be the doer of an action, by its first `senses`
+    WordNet senses. Proper nouns count: "Seeking allies, France turned to
+    the Porte" is how history is written."""
     if tok.pos_ == "PRON":
         return tok.lower_ not in ("it", "this", "that", "these", "those", "there")
     if tok.pos_ == "PROPN":
         return True
-    synsets = WORDNET.synsets(tok.lemma_.lower(), pos="n")[:3]
+    synsets = WORDNET.synsets(tok.lemma_.lower(), pos="n")[:senses]
     return not synsets or any(s.lexfile() in ANIMATE_LEXFILES for s in synsets)
+
+
+def research(v, main):
+    """Whether participle v is a research act on an observer's verb: there
+    "alliance", "city" count by their usual sense, not as groups of people."""
+    senses = WORDNET.synsets(v.lemma_.lower(), pos="v")[:1]
+    return main.lemma_.lower() in OBSERVED_VERBS and bool(senses) and senses[0].lexfile() in RESEARCH_LEXFILES
 
 
 def dangling(sent, q):
@@ -312,7 +331,7 @@ def dangling(sent, q):
     active = v.tag_ == "VBG" or bool(auxes)
     if subj.lower_ in ("it", "there"):
         why = f'"{subj.text}" can\'t be its doer'
-    elif active and not animate(subj):
+    elif active and not animate(subj, senses=1 if research(v, main) else 3):
         why = f'"{doc[subj.left_edge.i : subj.i + 1].text}" can\'t be its doer'
     else:
         return
@@ -380,17 +399,6 @@ def negatives(sent, q):
 # --- 16: definite, specific, concrete --------------------------------------
 
 
-def nominal_verbs(noun):
-    """Verbs the noun is made from: decision -> decide."""
-    out = []
-    for sense in WORDNET.senses(noun, pos="n")[:3]:
-        for d in sense.get_related("derivation"):
-            word = d.word()
-            if word.pos == "v" and word.lemma()[:3] == noun[:3] and word.lemma() not in out:
-                out.append(word.lemma())
-    return out
-
-
 def concrete(sent, q):
     doc = sent.doc
     for v in sent:
@@ -399,6 +407,16 @@ def concrete(sent, q):
         lemma = v.lemma_.lower()
         if any(c.dep_ in ("prt", "xcomp", "ccomp") for c in v.children):
             continue  # "give up", "made him leave", "got to know"
+        be = next((c for c in v.children if c.dep_ == "auxpass"), None)
+        if lemma in LIGHT_VERBS and be is not None:
+            # "The decision was made by the king" -> "the king decided"
+            fix = passive_fix(be, v, doc, q)
+            nominal = [c for c in fix["choices"] if c["note"] == "the verb inside the noun"] if fix else []
+            if nominal:
+                subj = next(c for c in v.children if c.dep_ == "nsubjpass")
+                span = doc.text[subj.left_edge.idx : end(v)]
+                yield "NOMINALIZATION", subj.left_edge.idx, end(v), f'nominalization (S&W 16): "{span}"', {"choices": nominal}
+                continue
         if lemma in LIGHT_VERBS:
             obj = next((c for c in v.children if c.dep_ == "dobj"), None)
             if obj is not None and obj.lower_.endswith(NOMINAL_SUFFIXES):

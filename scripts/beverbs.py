@@ -152,6 +152,23 @@ def verb_nouns(lemma):
     return out
 
 
+# "made a decision" -> "decided": a light verb whose object is a noun made
+# from a verb. Shared with strunk's NOMINALIZATION.
+LIGHT_VERBS = {"make", "take", "give", "conduct", "perform", "reach", "undertake"}
+NOMINAL_SUFFIXES = ("tion", "sion", "ment", "ance", "ence", "ancy", "ency", "sis", "ure", "al")
+
+
+def nominal_verbs(noun):
+    """Verbs the noun is made from: decision -> decide."""
+    out = []
+    for sense in WORDNET.senses(noun, pos="n")[:3]:
+        for d in sense.get_related("derivation"):
+            word = d.word()
+            if word.pos == "v" and word.lemma()[:3] == noun[:3] and word.lemma() not in out:
+                out.append(word.lemma())
+    return out
+
+
 def passive_fix(be, verb, doc, q):
     """Active rewrites for the passive `be ... verb`, as {"choices"}, or None:
     "the treaty was signed by Francis" -> "Francis signed the treaty"
@@ -189,22 +206,28 @@ def passive_fix(be, verb, doc, q):
     auxes = [c for c in verb.children if c.dep_ in ("aux", "auxpass") and c.i < verb.i]
     words = [a.lower_ for a in auxes]
     many = plural(obj)
-    if words in (["was"], ["were"]):
-        group = [inflect(verb.lemma_, "VBD")]
-    elif words in (["is"], ["are"], ["am"]):
-        group = [inflect(verb.lemma_, "VBP" if many else "VBZ")]
-    elif len(words) == 2 and words[0] in ("has", "have", "had") and words[1] == "been":
-        group = ["had" if words[0] == "had" else "have" if many else "has", verb.text]
-    elif len(words) == 2 and auxes[0].tag_ == "MD" and words[1] == "be":
-        group = [auxes[0].text, inflect(verb.lemma_, "VB")]
-    else:
+
+    def verb_group(lemma, participle):
+        if words in (["was"], ["were"]):
+            return [inflect(lemma, "VBD")]
+        if words in (["is"], ["are"], ["am"]):
+            return [inflect(lemma, "VBP" if many else "VBZ")]
+        if len(words) == 2 and words[0] in ("has", "have", "had") and words[1] == "been":
+            return ["had" if words[0] == "had" else "have" if many else "has", participle]
+        if len(words) == 2 and auxes[0].tag_ == "MD" and words[1] == "be":
+            return [auxes[0].text, inflect(lemma, "VB")]
+        return None
+
+    group = verb_group(verb.lemma_, verb.text)
+    if group is None:
         return None
     # Only adverbs may sit between the subject and the verb; they stay
     # before the verb ("had been quickly burned" -> "had quickly burned").
     between = [t for t in doc[subj.right_edge.i + 1 : verb.i] if not t.is_space and t.i not in {a.i for a in auxes}]
     if any(t.dep_ != "advmod" or t.head.i != verb.i for t in between):
         return None
-    group[-1:-1] = [t.text for t in between]
+    adverbs = [t.text for t in between]
+    group[-1:-1] = adverbs
 
     doer = recase(obj, TO_SUBJECT) if obj.left_edge.i == agent.right_edge.i else doc[obj.left_edge.i : agent.right_edge.i + 1].text
     middle = doc.text[end(verb) : agent.idx].rstrip()  # "taken over by" -> "took ... over"
@@ -220,7 +243,27 @@ def passive_fix(be, verb, doc, q):
         text = " ".join([doer, *group, thing]) + middle
     # A reordered span can't keep its line breaks where they were.
     text = re.sub(r"\s+", " ", text).strip()
-    return {"choices": [{"text": text, "note": "active voice", "start": subj.left_edge.idx, "end": end(agent.right_edge)}]}
+    choices = [{"text": text, "note": "active voice", "start": subj.left_edge.idx, "end": end(agent.right_edge)}]
+    # "The decision was made by the king" -> "the king decided", not "the
+    # king made the decision": only for a bare noun ("the decision", not
+    # "the final decision") with nothing between the verb and "by".
+    if (
+        verb.lemma_.lower() in LIGHT_VERBS
+        and subj.lower_.endswith(NOMINAL_SUFFIXES)
+        and subj.lower_ not in RELATIVES
+        and all(t.dep_ == "det" for t in doc[subj.left_edge.i : subj.i])
+        and subj.right_edge.i == subj.i
+        and not middle.strip()
+    ):
+        for lemma in nominal_verbs(subj.lower_):
+            group = verb_group(lemma, inflect(lemma, "VBN"))
+            group[-1:-1] = adverbs
+            text = re.sub(r"\s+", " ", " ".join([doer, *group])).strip()
+            choices.insert(0, {"text": text, "note": "the verb inside the noun", "start": subj.left_edge.idx, "end": end(agent.right_edge)})
+    if subj.left_edge.is_sent_start:
+        for c in choices:
+            c["text"] = c["text"][:1].upper() + c["text"][1:]
+    return {"choices": choices}
 
 
 def be_verbs(doc):
