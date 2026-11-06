@@ -511,20 +511,42 @@ function M.fill_source_note(bufnr, default_title)
       require('config.zotero').pick {
         prompt_title = 'Zotero library — new source note',
         on_select = function(entry)
-          insert_frontmatter_fields(bufnr, {
-            { key = 'type', value = 'source' },
-            { key = 'title', value = entry.title },
-            { key = 'author', value = entry.author },
-            { key = 'year', value = entry.year },
-            { key = 'citekey', value = entry.key },
-            { key = 'status', value = 'reading' },
-          })
-          -- Rename the file to match the Zotero title, now that we have one.
-          vim.schedule(function()
-            if vim.api.nvim_buf_is_valid(bufnr) then
-              vim.api.nvim_buf_call(bufnr, function() M.rename_to_title_slug() end)
+          local function fill(item)
+            local fields = {
+              { key = 'type', value = 'source' },
+              { key = 'title', value = entry.title },
+              { key = 'author', value = entry.author },
+              { key = 'year', value = entry.year },
+              { key = 'citekey', value = entry.key },
+            }
+            -- The citekey alone can't identify the item: group libraries repeat it.
+            if item then
+              table.insert(fields, { key = 'zotero_key', value = item.key })
             end
-          end)
+            table.insert(fields, { key = 'status', value = 'reading' })
+            insert_frontmatter_fields(bufnr, fields)
+            -- Rename the file to match the Zotero title, now that we have one.
+            vim.schedule(function()
+              if vim.api.nvim_buf_is_valid(bufnr) then
+                vim.api.nvim_buf_call(bufnr, function() M.rename_to_title_slug() end)
+              end
+            end)
+          end
+
+          local items = require('config.zotero').items_for_citekey(entry.key)
+          if not items or #items == 0 then
+            vim.notify('[zotero] No Zotero item found for ' .. entry.key .. '; zotero_key left unset', vim.log.levels.WARN)
+            fill(nil)
+          elseif #items == 1 then
+            fill(items[1])
+          else
+            vim.ui.select(items, {
+              prompt = 'Several Zotero items share ' .. entry.key .. ':',
+              format_item = function(item)
+                return string.format('%s %s %s  %s', item.has_file and 'file   ' or 'no file', item.key, item.date, item.title)
+              end,
+            }, fill)
+          end
         end,
       }
       return

@@ -73,6 +73,24 @@ function M.parse_entries()
   return entries
 end
 
+--- Zotero items with this citekey, those with a readable file first:
+--- `{key, itemType, title, date, has_file}` from the zot tooling in
+--- ~/dotfiles (bash because `zot.sh` is shell functions, which Neovim's own
+--- shells never load). Copies in group libraries are left out when My Library
+--- has the work; more than one can still come back. Returns nil
+--- if the lookup itself failed.
+function M.items_for_citekey(citekey)
+  local script = vim.fn.expand '~/dotfiles/zot.sh'
+  local out = vim.fn.system {
+    'bash', '-c', 'source "$0" && _zot_check_db && _zot_query citekeyitems "$1"', script, citekey,
+  }
+  if vim.v.shell_error ~= 0 then
+    return nil
+  end
+  local ok, items = pcall(vim.json.decode, out)
+  return ok and items or nil
+end
+
 --- Open a Telescope picker over the parsed library. `opts.on_select(entry)`
 --- is called with the chosen entry; `opts.prompt_title` overrides the
 --- picker's title.
