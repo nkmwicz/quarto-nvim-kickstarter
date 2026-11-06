@@ -21,7 +21,6 @@ return {
       'f3fora/cmp-spell',
       'ray-x/cmp-treesitter',
       'kdheepak/cmp-latex-symbols',
-      'jmbuhr/cmp-pandoc-references',
       'L3MON4D3/LuaSnip',
       'rafamadriz/friendly-snippets',
       'onsails/lspkind-nvim',
@@ -31,6 +30,8 @@ return {
       local cmp = require 'cmp'
       local luasnip = require 'luasnip'
       local lspkind = require 'lspkind'
+
+      cmp.register_source('pandoc_references', require('config.citations').cmp_source())
 
       local has_words_before = function()
         local line, col = unpack(vim.api.nvim_win_get_cursor(0))

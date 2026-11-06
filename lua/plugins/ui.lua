@@ -237,45 +237,12 @@ return {
 
       -- .bib-file-backed Zotero picker. Reads from a BBT auto-export instead of SQLite.
       -- Mirrors the telescope-zotero workflow: inserts @citekey at cursor and appends
-      -- the full BibTeX entry to the project's references.bib (found via _quarto.yml).
-      -- Citation-insert action for `<leader>fz`: writes `@key` at the cursor
-      -- and appends the full BibTeX entry to the manuscript's .bib file (if
-      -- not already there). The picker itself lives in config.zotero, shared
+      -- the full BibTeX entry to the document's bibliography (config.citations),
+      -- if not already there. The picker itself lives in config.zotero, shared
       -- with evergreen.lua's Zotero-driven source-note capture.
       local function insert_citation(item)
         vim.api.nvim_put({ '@' .. item.key }, '', false, true)
-
-        local locate_bib = require('zotero.bib').locate_quarto_bib
-        local bib_out = locate_bib()
-        if not bib_out then
-          vim.notify_once('[zotero] Could not find a bibliography file', vim.log.levels.WARN)
-          return
-        end
-        bib_out = vim.fn.expand(bib_out)
-
-        local ok, lines = pcall(io.lines, bib_out)
-        if not ok then
-          if vim.fn.confirm("Bibliography file missing. Create '" .. bib_out .. "'?", '&Yes\n&No', 1) == 1 then
-            vim.fn.writefile({}, bib_out)
-          else
-            return
-          end
-        else
-          for line in lines do
-            if line:match '^@' and line:match(item.key) then
-              return
-            end
-          end
-        end
-
-        local file = io.open(bib_out, 'a')
-        if not file then
-          vim.notify('[zotero] Could not open ' .. bib_out .. ' for appending', vim.log.levels.ERROR)
-          return
-        end
-        file:write(item.raw)
-        file:close()
-        vim.print('wrote ' .. item.key .. ' to ' .. bib_out)
+        require('config.citations').add_to_bibliography(0, item)
       end
 
       vim.keymap.set('n', '<leader>fz', function()

@@ -6,6 +6,7 @@
 local M = {}
 
 local bib_path = vim.fn.expand '~/home/zotero-plugins/zotero-library.bib'
+M.bib_path = bib_path
 
 local type_abbrev = {
   article       = 'art',
@@ -19,19 +20,24 @@ local type_abbrev = {
   misc          = 'misc',
 }
 
---- Parse the exported .bib file into `{key, type, title, author, year, raw}`
---- entries. `author` is just the first author's "Last, First" (enough for
---- display and for slugging); `raw` is the full BibTeX entry text.
-function M.parse_entries()
-  if vim.fn.filereadable(bib_path) == 0 then
-    vim.notify(
-      '[zotero] Library not found. Export your Zotero library via Better BibTeX to:\n  ' .. bib_path,
-      vim.log.levels.WARN
-    )
+--- Parse a .bib file (by default the Zotero export) into `{key, type, title,
+--- author, year, raw}` entries. `author` is just the first author's "Last,
+--- First" (enough for display and for slugging); `raw` is the full BibTeX
+--- entry text.
+function M.parse_entries(path)
+  local library = path == nil
+  path = path or bib_path
+  if vim.fn.filereadable(path) == 0 then
+    if library then
+      vim.notify(
+        '[zotero] Library not found. Export your Zotero library via Better BibTeX to:\n  ' .. bib_path,
+        vim.log.levels.WARN
+      )
+    end
     return nil
   end
 
-  local content = table.concat(vim.fn.readfile(bib_path), '\n')
+  local content = table.concat(vim.fn.readfile(path), '\n')
   local entries = {}
   for entry_str in content:gmatch '@[%w_]+%b{}' do
     local type_ = entry_str:match '^@([%w_]+)'
@@ -67,7 +73,9 @@ function M.parse_entries()
   end
 
   if #entries == 0 then
-    vim.notify('[zotero] No entries found in ' .. bib_path, vim.log.levels.WARN)
+    if library then
+      vim.notify('[zotero] No entries found in ' .. bib_path, vim.log.levels.WARN)
+    end
     return nil
   end
   return entries

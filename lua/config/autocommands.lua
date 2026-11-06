@@ -71,7 +71,7 @@ vim.api.nvim_create_autocmd({"BufReadPost"}, {
 -- Auto-activate otter on Quarto files, for the languages of their fenced
 -- code blocks only (not the HTML comments and YAML front matter, which would
 -- start html-lsp, emmet and yamlls for every prose section). See
--- config/otter_fenced.lua. (@citation completion is cmp-pandoc-references,
+-- config/otter_fenced.lua. (@citation completion is config/citations.lua,
 -- which doesn't need otter.)
 require('config.otter_fenced').setup()
 
