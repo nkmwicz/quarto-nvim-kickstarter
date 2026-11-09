@@ -22,6 +22,8 @@ end
 vim.opt.wrap = true
 vim.opt.showbreak = '>>> '
 vim.opt.linebreak = true
+-- keep undo history across sessions (stdpath("state")/undo)
+vim.opt.undofile = true
 -- add vertical line at 80 characters
 vim.opt.colorcolumn = "80"
 

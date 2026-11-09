@@ -130,6 +130,51 @@ local function word_count(fpath)
   return n
 end
 
+-- ── open markers (TK, TODO, [cite] …) ───────────────────────────────────────
+
+-- Lua patterns for the placeholders left while drafting; one hit per line.
+-- Override with vim.g.binder_todo_patterns (a list of Lua patterns).
+local TODO_PATTERNS = {
+  '%f[%w]TK+%f[%W]',            -- TK, TKTK
+  '%f[%w]TODO%f[%W]',
+  '%f[%w]FIXME%f[%W]',
+  '%?%?',
+  '%[[Cc]ite%??%]',             -- [cite], [cite?]
+  '<!%-%-%s*[Tt][Oo][Dd][Oo]',  -- <!-- todo: … -->
+}
+
+-- Lines of fpath: the loaded buffer's (unsaved edits included), else the file's.
+local function file_lines(fpath)
+  local buf = vim.fn.bufnr(fpath)
+  if buf ~= -1 and vim.api.nvim_buf_is_loaded(buf) then
+    return vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+  end
+  return vim.fn.readfile(fpath)
+end
+
+-- Open markers in fpath, skipping the line-1 metadata block: { {lnum, text} }.
+local function find_todos(fpath)
+  local pats = vim.g.binder_todo_patterns or TODO_PATTERNS
+  local hits, in_meta, meta_end = {}, false, ''
+  for i, line in ipairs(file_lines(fpath)) do
+    if i == 1 and line == '---' then
+      in_meta, meta_end = true, '^%-%-%-'
+    elseif i == 1 and line:match '^<!%-%-' and not line:match '%-%->' then
+      in_meta, meta_end = true, '%-%->'
+    elseif in_meta then
+      if line:match(meta_end) then in_meta = false end
+    else
+      for _, pat in ipairs(pats) do
+        if line:find(pat) then
+          hits[#hits + 1] = { lnum = i, text = vim.trim(line) }
+          break
+        end
+      end
+    end
+  end
+  return hits
+end
+
 -- Collect all section files from sp with parsed metadata and word counts.
 local function collect_sections(sp)
   local paths = vim.fn.globpath(sp, '*.qmd', false, true)
@@ -145,6 +190,7 @@ local function collect_sections(sp)
       summary  = meta.summary  or '',
       keywords = meta.keywords or '',
       words    = word_count(fpath),
+      todos    = #find_todos(fpath),
     }
   end
   return out
@@ -180,6 +226,7 @@ local function collect_sections_ordered(sp)
           summary  = meta.summary  or '',
           keywords = meta.keywords or '',
           words    = word_count(full),
+          todos    = #find_todos(full),
           orphan   = false,
         }
       end
@@ -248,6 +295,14 @@ local function cmd_label()
     { prompt = 'Set status (current: ' .. (meta.status ~= '' and meta.status or 'none') .. '): ' },
     function(choice)
       if not choice then return end
+      if choice == 'done' then
+        local open = #find_todos(fpath)
+        if open > 0 and vim.fn.confirm(
+          string.format('%d open marker%s (TK, TODO, [cite]…) remain. Mark done anyway?',
+            open, open == 1 and '' or 's'), '&Yes\n&No', 2) ~= 1 then
+          return
+        end
+      end
       set_meta_field(fpath, 'status', choice)
       vim.notify('[binder] status set to ' .. choice)
     end
@@ -442,7 +497,7 @@ local function cmd_outliner()
   local lines    = {}
   local fmap     = {}               -- line number → fpath
 
-  lines[1] = string.format(row_fmt, 'status', 'words', 'file', 'summary')
+  lines[1] = string.format(row_fmt, 'status', 'words', 'file', 'TK  summary')
   lines[2] = '  ' .. string.rep('─', C1 + C2 + C3 + 40)
 
   for _, s in ipairs(sections) do
@@ -452,7 +507,8 @@ local function cmd_outliner()
     local avail      = math.max(10, vim.o.columns - C1 - C2 - C3 - 12)
     local summary    = #s.summary > avail and s.summary:sub(1, avail - 1) .. '…' or s.summary
     if summary == '' then summary = '—' end
-    lines[#lines + 1] = string.format(row_fmt, status_str, words_str, s.fname, summary)
+    local tk = s.todos > 0 and string.format('%-2d  ', s.todos) or '·   '
+    lines[#lines + 1] = string.format(row_fmt, status_str, words_str, s.fname, tk .. summary)
     fmap[#lines] = s.path
   end
 
@@ -545,6 +601,7 @@ local function cmd_corkboard()
         local icon       = STATUS_ICON[s.status] or '·'
         local status_tag = icon .. ' ' .. (s.status ~= '' and s.status or '—')
         local words_tag  = s.words .. 'w'
+        if s.todos > 0 then words_tag = s.todos .. ' TK  ' .. words_tag end
         local gap = math.max(1, inner - #s.fname - #status_tag - #words_tag - 2)
         local hdr = s.fname .. string.rep(' ', gap) .. status_tag .. '  ' .. words_tag
         ls[#ls + 1] = tl .. bar .. tr
@@ -841,34 +898,11 @@ local function cmd_focus()
   end, { buffer = buf, silent = true, desc = 'close [f]ocus' })
 end
 
--- ── bh / gh: file history (git log float, <CR> to show diff) ────────────────
+-- ── bh / gh: file history (word-diff git log float) ──────────────────────────
 
--- Show a git-log float for fpath, with <CR> opening `git show` for that
--- commit in a terminal split. Generic — not scoped to sections/.
+-- Generic — not scoped to sections/. See config/history.lua.
 function M.git_history(fpath)
-  local fname = vim.fn.fnamemodify(fpath, ':t')
-  local log   = vim.fn.systemlist { 'git', 'log', '--oneline', '--', fpath }
-  if #log == 0 then
-    vim.notify('[binder] no git history for ' .. fname, vim.log.levels.WARN)
-    return
-  end
-
-  local lines = { '  ' .. fname, '' }
-  for _, l in ipairs(log) do lines[#lines + 1] = '  ' .. l end
-  lines[#lines + 1] = ''
-  lines[#lines + 1] = '  <Enter>: show diff in split    q: close'
-
-  local buf, win = open_float(lines, 'File History')
-  vim.api.nvim_win_set_cursor(win, { 3, 0 })
-
-  vim.keymap.set('n', '<CR>', function()
-    local row  = vim.api.nvim_win_get_cursor(win)[1]
-    local hash = lines[row] and lines[row]:match '^%s+(%x+)'
-    if not hash then return end
-    vim.api.nvim_win_close(win, true)
-    vim.cmd('botright split | terminal git --no-pager show ' .. hash .. ' -- ' .. vim.fn.shellescape(fpath))
-  end, { buffer = buf, silent = true })
-  close_keys(buf, win)
+  require('config.history').show(fpath)
 end
 
 local function cmd_history()
@@ -931,6 +965,42 @@ local function cmd_report()
   local buf, win = open_float(report, 'Manuscript Status Report',
     { width = math.floor(vim.o.columns * 0.5) })
   close_keys(buf, win)
+end
+
+-- ── bt: open markers across the manuscript, in reading order ────────────────
+
+local function cmd_todos()
+  local sp = require_sections()
+  if not sp then return end
+  local results = {}
+  for _, s in ipairs(collect_sections_ordered(sp)) do
+    for _, h in ipairs(find_todos(s.path)) do
+      results[#results + 1] = { path = s.path, fname = s.fname, lnum = h.lnum, text = h.text }
+    end
+  end
+  if #results == 0 then
+    vim.notify('[binder] no open markers (TK, TODO, [cite]…) in the manuscript')
+    return
+  end
+  local pickers    = require 'telescope.pickers'
+  local finders    = require 'telescope.finders'
+  local conf       = require('telescope.config').values
+  pickers.new({}, {
+    prompt_title = string.format(' Open markers (%d) ', #results),
+    finder = finders.new_table {
+      results = results,
+      entry_maker = function(r)
+        local loc = string.format('%s:%d', r.fname, r.lnum)
+        return {
+          value = r, ordinal = loc .. ' ' .. r.text,
+          display = loc .. string.rep(' ', math.max(1, 34 - #loc)) .. r.text,
+          filename = r.path, lnum = r.lnum, col = 1,
+        }
+      end,
+    },
+    sorter    = conf.generic_sorter {},
+    previewer = conf.grep_previewer {},
+  }):find()
 end
 
 -- ── bN: section notes ────────────────────────────────────────────────────────
@@ -1002,6 +1072,10 @@ local function cmd_word_count()
     lines[#lines + 1] = bar(sw, session_target)
   else
     lines[#lines + 1] = string.format('  Session     +%d words', session_words)
+  end
+  local today = require('config.writinglog').today(project_dir)
+  if today then
+    lines[#lines + 1] = string.format('  Today       %+d words  (writing log)', today)
   end
   lines[#lines + 1] = ''
 
@@ -1086,6 +1160,17 @@ function M.setup()
     { '<leader>bc', cmd_corkboard, desc = '[c]orkboard' },
     { '<leader>bf', cmd_focus,     desc = '[f]ocus mode' },
     { '<leader>bh', cmd_history,   desc = '[h]istory' },
+    { '<leader>bt', cmd_todos,     desc = 'open markers (T[K]/[t]odo)' },
+    { '<leader>br', function() require('config.outline').open() end,
+      desc = '[r]everse outline (section)' },
+    { '<leader>bR', function() require('config.outline').open { manuscript = true } end,
+      desc = '[R]everse outline (manuscript)' },
+
+    { '<leader>bL',  group = 'writing [L]og' },
+    { '<leader>bLi', function() require('config.writinglog').init() end, desc = '[i]nit log' },
+    { '<leader>bLl', function() require('config.writinglog').show() end, desc = '[l]og view' },
+    { '<leader>bLw', function() require('config.writinglog').flush_all(true) end,
+      desc = '[w]rite session now' },
     { '<leader>bN', cmd_notes,     desc = '[N]otes' },
 
     { '<leader>bi',  group = '[i]nspector' },
@@ -1108,6 +1193,17 @@ function M.setup()
         } end
       end, desc = '[k]eywords grep' },
   }, { mode = 'n' })
+
+  require('config.writinglog').setup()
 end
+
+-- Shared with config/outline.lua, config/writinglog.lua.
+M.sections_path            = sections_path
+M.require_sections         = require_sections
+M.word_count               = word_count
+M.file_lines               = file_lines
+M.collect_sections_ordered = collect_sections_ordered
+M.open_float               = open_float
+M.close_keys               = close_keys
 
 return M

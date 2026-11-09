@@ -107,22 +107,26 @@ The unit of work is a **section** — a `.qmd` file in a `sections/` subdirector
 **Metaphor**: a section is a index card in a physical binder. You can write them in any order, pin a summary and status to each one, lay them out on a corkboard to see the argument's shape, drag them into a new order, and only then produce the final document.
 
 Commands:
-- `<leader>bo` — open the manuscript parent file
-- `<leader>bs` — open a section by name (Telescope picker)
-- `<leader>bm` — move/reorder sections
-- `<leader>bc` — corkboard (card view of all sections with summaries and status)
-- `<leader>bl` — outliner (table view of sections with status and word counts)
+- `<leader>bb` — back to the manuscript parent file; `<leader>bs` — open a section by name (Telescope picker); `<leader>bn` — new section
+- `<leader>bm` — move/reorder sections; `<leader>bl` — set status
+- `<leader>bc` — corkboard (card view of all sections with summaries, status, open-marker count)
+- `<leader>bo` — outliner (table view of sections with status, word counts, open-marker count)
 - `<leader>bf` — focus mode (distraction-free writing in a centred float)
 - `<leader>bN` — open/create a section-local notes file
-- `<leader>bii` — inspector: edit status, summary, keywords for current section
-- `<leader>biw` — word count with manuscript target and session target progress bars
+- `<leader>bir` / `bis` / `bik` — status report / status grep / keywords grep
+- `<leader>biw` — word count with manuscript target, session target and (with a writing log) today's total
+- `<leader>bt` — open markers (`TK`, `TODO`, `FIXME`, `??`, `[cite]`, `<!-- todo … -->`) across the manuscript in reading order (Telescope). Patterns are `TODO_PATTERNS` in `binder.lua`, overridable with `vim.g.binder_todo_patterns`; the line-1 metadata block is skipped. Setting status `done` with markers left asks first.
+- `<leader>br` / `<leader>bR` — reverse outline (`lua/config/outline.lua`) of the section / the whole manuscript (included sections, in order): each paragraph's first sentence with its word count and quotation share (`q73%`, highlighted at 50%+; block quotes are 100%); `l` adds last sentences, `<CR>` jumps. Footnotes, citations and comments are stripped before splitting; `ABBR` lists the abbreviations that don't end a sentence (`fol.`, `M.`, `St.`…).
+- `<leader>bh` (and `<leader>gh` for any file) — the file's git commits (`lua/config/history.lua`); `<CR>` word-diff against the previous version, `d` against the file now, `r` restore that version into the buffer (unsaved, undoable). Word diffs because a prose paragraph is one long line.
+- `<leader>bLi` / `bLl` / `bLw` — writing log (`lua/config/writinglog.lua`): `.binder-log` at the project root, committed with the manuscript, one tab-separated line per day (date, net words, manuscript total, sections saved with their net words, `+0` for same-length revisions). `bLi` creates it; only projects with one are logged. Words are counted per section on save (baseline: the file on disk before the session's first save), kept in memory, and merged into today's line on exit or `bLw`. `bLl` shows recent days, 7/30-day totals and the streak.
 
 Design constraints:
 - Section metadata (`status`, `summary`, `keywords`) lives **in-file** in HTML comment blocks — no external database.
 - The parent document is authoritative for reading order; the outliner and corkboard reflect and write back to it.
 - Status values (`todo → draft → review → done`) model a writing lifecycle.
 - Word counts exclude YAML front matter, HTML comment blocks, and code fences — prose only.
-- Session word count resets on `r` in the word count float, or automatically on each new Neovim session.
+- Session word count resets on `r` in the word count float, or automatically on each new Neovim session; the writing log is the count that survives restarts.
+- `undofile` is on (`config.global`), so undo history survives closing a file.
 - `<leader>b…` commands are scoped to the manuscript. Do not extend them for general file management.
 
 ### Research (`lua/config/research.lua`, `<leader>r…`)
