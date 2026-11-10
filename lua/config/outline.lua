@@ -109,8 +109,22 @@ local function quote_share(text)
   return math.min(1, q / #text)
 end
 
--- Files to outline: the current buffer, or the manuscript's included sections.
-local function sources(manuscript)
+-- Sources (footnotes, citations) in a raw paragraph: footnotes, plus
+-- citations outside them (a footnote citing three works is one note).
+local function evidence(raw)
+  local notes = 0
+  local rest = raw:gsub('%^%b[]', function() notes = notes + 1; return ' ' end)
+  rest = rest:gsub('%[%^[^%]]+%]', function() notes = notes + 1; return ' ' end)
+  local cites = 0
+  rest:gsub('%b[]', function(b) if b:find('@', 1, true) then cites = cites + 1 end end)
+  local outside = ' ' .. (rest:gsub('%b[]', '')) -- narrative citations: @key argues
+  for _ in outside:gmatch '[%s(]@[%w_]' do cites = cites + 1 end
+  return notes + cites
+end
+
+-- Files to work on: the current buffer, or the manuscript's included sections
+-- in reading order. → { {path, lines} } or nil
+function M.files(manuscript)
   if not manuscript then
     local path = vim.api.nvim_buf_get_name(0)
     if path == '' then return nil end
@@ -126,18 +140,15 @@ local function sources(manuscript)
   return out
 end
 
-function M.open(opts)
+-- Every heading and prose paragraph of files, in order. Paragraph items:
+-- { kind='para', path, lnum, n (in its file), raw, text (cleaned), words,
+--   quote (0..1), sources, first, last }. With opts.file_rows, each file
+-- starts with a { kind='file' } item.
+function M.items(files, opts)
   opts = opts or {}
-  local files = sources(opts.manuscript)
-  if not files or #files == 0 then
-    vim.notify('[outline] nothing to outline', vim.log.levels.WARN)
-    return
-  end
-
-  -- Pre-compute every paragraph once; render() only lays them out.
   local items = {}
   for _, f in ipairs(files) do
-    if opts.manuscript then
+    if opts.file_rows then
       items[#items + 1] = { kind = 'file', path = f.path, lnum = 1, text = vim.fn.fnamemodify(f.path, ':t') }
     end
     local n = 0
@@ -152,23 +163,125 @@ function M.open(opts)
           local words = 0
           for _ in text:gmatch '%S+' do words = words + 1 end
           items[#items + 1] = {
-            kind = 'para', path = f.path, lnum = b.lnum, n = n, words = words,
-            quote = b.blockquote and 1 or quote_share(text),
+            kind = 'para', path = f.path, lnum = b.lnum, n = n, raw = b.text, text = text,
+            words = words, quote = b.blockquote and 1 or quote_share(text),
+            blockquote = b.blockquote, sources = evidence(b.text),
             first = sents[1] or text, last = #sents > 1 and sents[#sents] or nil,
           }
         end
       end
     end
   end
+  return items
+end
+
+-- Open item (path, lnum[, search]) in the window the float came from.
+function M.jump(it)
+  if vim.api.nvim_buf_get_name(0) ~= it.path then
+    vim.cmd('edit ' .. vim.fn.fnameescape(it.path))
+  end
+  vim.api.nvim_win_set_cursor(0, { math.min(it.lnum, vim.api.nvim_buf_line_count(0)), 0 })
+  if it.search then vim.fn.search('\\V' .. vim.fn.escape(it.search, '\\'), 'cW') end
+  vim.cmd 'normal! zvzz'
+end
+
+-- A report float. opts: title, footer, indent (wrapped-line indent),
+-- render() → lines, hls { {row, col, end_col (-1: eol), group} }, rowmap
+-- { row → item }; keys { key → fn(item, redraw) }. <CR> jumps to the
+-- row's item (M.jump) unless keys['<CR>'] says otherwise.
+function M.float(opts)
+  local buf = vim.api.nvim_create_buf(false, true)
+  vim.bo[buf].bufhidden = 'wipe'
+  local rowmap = {}
+  local function draw()
+    local lines, hls
+    lines, hls, rowmap = opts.render()
+    vim.bo[buf].modifiable = true
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+    vim.bo[buf].modifiable = false
+    vim.api.nvim_buf_clear_namespace(buf, ns, 0, -1)
+    for _, h in ipairs(hls) do
+      local len = #lines[h[1]]
+      vim.api.nvim_buf_set_extmark(buf, ns, h[1] - 1, math.min(h[2], len), {
+        end_col = h[3] < 0 and len or math.min(h[3], len), hl_group = h[4],
+      })
+    end
+    return #lines
+  end
+  local nlines = draw()
+  local w = math.floor(vim.o.columns * 0.85)
+  local h = math.min(math.max(nlines, 3) + 2, math.floor(vim.o.lines * 0.85))
+  local win = vim.api.nvim_open_win(buf, true, {
+    relative = 'editor', style = 'minimal', border = require('misc.style').border,
+    row = math.floor((vim.o.lines - h) / 2), col = math.floor((vim.o.columns - w) / 2),
+    width = w, height = h, title = ' ' .. opts.title .. ' ', title_pos = 'center',
+    footer = ' ' .. opts.footer .. ' ', footer_pos = 'center',
+  })
+  vim.wo[win].wrap = true
+  vim.wo[win].linebreak = true
+  vim.wo[win].breakindent = true
+  vim.wo[win].breakindentopt = 'shift:' .. (opts.indent or 4)
+  vim.wo[win].showbreak = 'NONE'
+  vim.wo[win].cursorline = true
+
+  local function redraw(keep)
+    local row = vim.api.nvim_win_get_cursor(win)[1]
+    local it = rowmap[row]
+    draw()
+    if keep and it then
+      local best
+      for r, x in pairs(rowmap) do
+        if x == it and (not best or r < best) then best = r end
+      end
+      row = best or row
+    end
+    vim.api.nvim_win_set_cursor(win, { math.min(row, vim.api.nvim_buf_line_count(buf)), 0 })
+  end
+  local keys = vim.tbl_extend('keep', opts.keys or {}, {
+    ['<CR>'] = function(it)
+      vim.api.nvim_win_close(win, true)
+      M.jump(it)
+    end,
+  })
+  for key, fn in pairs(keys) do
+    vim.keymap.set('n', key, function()
+      local it = rowmap[vim.api.nvim_win_get_cursor(win)[1]]
+      if it or key ~= '<CR>' then fn(it, redraw, win) end
+    end, { buffer = buf, silent = true, nowait = true })
+  end
+  require('config.binder').close_keys(buf, win)
+  -- start on the first row that has an item
+  local first
+  for r in pairs(rowmap) do if not first or r < first then first = r end end
+  if first then vim.api.nvim_win_set_cursor(win, { first, 0 }) end
+  return buf, win
+end
+
+-- Unsourced: a paragraph this long with no footnote or citation gets a "!".
+local UNSOURCED_WORDS = 60
+
+function M.open(opts)
+  opts = opts or {}
+  local files = M.files(opts.manuscript)
+  if not files or #files == 0 then
+    vim.notify('[outline] nothing to outline', vim.log.levels.WARN)
+    return
+  end
+  local items = M.items(files, { file_rows = opts.manuscript })
 
   local show_last = false
-  local PREFIX = 18 -- '  nnn  nnnnw  qnnn%  '
-  local buf = vim.api.nvim_create_buf(false, true)
-  local rowmap = {}
+  local PREFIX = 24 -- '  nnn  nnnnw  qnnn%  sNN  '
+  local paras, unsourced = 0, 0
+  for _, it in ipairs(items) do
+    if it.kind == 'para' then
+      paras = paras + 1
+      it.unsourced = it.sources == 0 and not it.blockquote and it.words >= UNSOURCED_WORDS
+      if it.unsourced then unsourced = unsourced + 1 end
+    end
+  end
 
   local function render()
-    local lines, hls = {}, {}
-    rowmap = {}
+    local lines, hls, rowmap = {}, {}, {}
     for _, it in ipairs(items) do
       if it.kind == 'file' then
         if #lines > 0 then lines[#lines + 1] = '' end
@@ -179,9 +292,11 @@ function M.open(opts)
         hls[#hls + 1] = { #lines, 0, -1, 'Title' }
       else
         local q = it.quote >= 0.1 and string.format('q%3d%%', math.floor(it.quote * 100 + 0.5)) or '     '
-        local meta = string.format('  %3d  %4dw  %s', it.n, it.words, q)
-        lines[#lines + 1] = meta .. '  ' .. it.first
+        local src = it.unsourced and '  !' or it.sources > 0 and string.format('s%-2d', it.sources) or '  ·'
+        local meta = string.format('  %3d  %4dw  %s  ', it.n, it.words, q)
+        lines[#lines + 1] = meta .. src .. '  ' .. it.first
         hls[#hls + 1] = { #lines, 0, #meta, it.quote >= 0.5 and 'WarningMsg' or 'Comment' }
+        hls[#hls + 1] = { #lines, #meta, #meta + #src, it.unsourced and 'DiagnosticWarn' or 'Comment' }
         if show_last and it.last then
           rowmap[#lines] = it
           lines[#lines + 1] = string.rep(' ', PREFIX + 3) .. '… ' .. it.last
@@ -190,64 +305,26 @@ function M.open(opts)
       end
       rowmap[#lines] = it
     end
-    vim.bo[buf].modifiable = true
-    vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
-    vim.bo[buf].modifiable = false
-    vim.api.nvim_buf_clear_namespace(buf, ns, 0, -1)
-    for _, h in ipairs(hls) do
-      local len = #lines[h[1]]
-      vim.api.nvim_buf_set_extmark(buf, ns, h[1] - 1, h[2], {
-        end_col = h[3] < 0 and len or math.min(h[3], len), hl_group = h[4],
-      })
-    end
-    return #lines
+    return lines, hls, rowmap
   end
 
-  local nlines = render()
-  local paras = 0
-  for _, it in ipairs(items) do if it.kind == 'para' then paras = paras + 1 end end
-  local title = opts.manuscript and 'Reverse Outline — manuscript'
-    or 'Reverse Outline — ' .. vim.fn.fnamemodify(files[1].path, ':t')
-  local w = math.floor(vim.o.columns * 0.85)
-  local h = math.min(math.max(nlines, 3) + 2, math.floor(vim.o.lines * 0.85))
-  local win = vim.api.nvim_open_win(buf, true, {
-    relative = 'editor', style = 'minimal', border = require('misc.style').border,
-    row = math.floor((vim.o.lines - h) / 2), col = math.floor((vim.o.columns - w) / 2),
-    width = w, height = h,
-    title = ' ' .. title .. string.format(' (%d paragraphs) ', paras), title_pos = 'center',
-    footer = ' ↵ jump   l last sentences   q close ', footer_pos = 'center',
-  })
-  vim.wo[win].wrap = true
-  vim.wo[win].linebreak = true
-  vim.wo[win].breakindent = true
-  vim.wo[win].breakindentopt = 'shift:' .. (PREFIX + 3)
-  vim.wo[win].showbreak = 'NONE'
-  vim.wo[win].cursorline = true
-
-  vim.keymap.set('n', '<CR>', function()
-    local it = rowmap[vim.api.nvim_win_get_cursor(win)[1]]
-    if not it then return end
-    vim.api.nvim_win_close(win, true)
-    if vim.api.nvim_buf_get_name(0) ~= it.path then
-      vim.cmd('edit ' .. vim.fn.fnameescape(it.path))
-    end
-    vim.api.nvim_win_set_cursor(0, { it.lnum, 0 })
-    vim.cmd 'normal! zvzz'
-  end, { buffer = buf, silent = true })
-  vim.keymap.set('n', 'l', function()
-    local it = rowmap[vim.api.nvim_win_get_cursor(win)[1]]
-    show_last = not show_last
-    render()
-    local best
-    for row, r in pairs(rowmap) do
-      if r == it and (not best or row < best) then best = row end
-    end
-    if best then vim.api.nvim_win_set_cursor(win, { best, 0 }) end
-  end, { buffer = buf, silent = true })
-  require('config.binder').close_keys(buf, win)
+  M.float {
+    title = (opts.manuscript and 'Reverse Outline — manuscript'
+      or 'Reverse Outline — ' .. vim.fn.fnamemodify(files[1].path, ':t'))
+      .. string.format(' (%d paragraphs, %d unsourced)', paras, unsourced),
+    footer = '↵ jump   l last sentences   s/! sources/unsourced   q close',
+    indent = PREFIX + 3,
+    render = render,
+    keys = {
+      l = function(_, redraw)
+        show_last = not show_last
+        redraw(true)
+      end,
+    },
+  }
 end
 
 -- Exposed for tests.
-M._blocks, M._clean, M._sentences, M._quote_share = blocks, clean, sentences, quote_share
+M._blocks, M._clean, M._sentences, M._quote_share, M._evidence = blocks, clean, sentences, quote_share, evidence
 
 return M

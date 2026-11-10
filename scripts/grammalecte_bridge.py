@@ -18,6 +18,8 @@ order, matched by id:
   {"id", "op": "beverbs", "text", "ignore", "bib": [".bib paths"]}
       -> {"id", "errors": [... as above, with "fix" instead of "suggestions"]}
   {"id", "op": "suggest", "fix": {...}}  -> {"id", "suggestions": [...]}
+  {"id", "op": "people", "paras": [...], "bib": [...]}  -> {"id", "people": {...}}
+      (first mentions across a manuscript, people.py)
   either -> {"id", "unavailable": "<why>"} when the prose venv is missing.
 
 Which text counts as French:
@@ -419,6 +421,13 @@ def serve(req):
             import beverbs  # noqa: PLC0415
 
             resp["suggestions"] = beverbs.suggest(req["fix"])
+        elif op == "people":
+            import people  # noqa: PLC0415
+
+            scholars = set()
+            for path in req.get("bib", []):
+                scholars |= read_bib(path)[1]
+            resp["people"] = people.people(req["paras"], scholars)
     except ImportError as e:  # prose venv missing (scripts/setup_prose_venv.sh)
         resp["unavailable"] = f"{e}; run {sys.path[0]}/setup_prose_venv.sh"
     except Exception as e:
@@ -444,7 +453,7 @@ for line in sys.stdin:
     except ValueError as e:
         send({"id": None, "errors": [], "warning": repr(e)})
         continue
-    if req.get("op") in ("beverbs", "suggest"):
+    if req.get("op") in ("beverbs", "suggest", "people"):
         work.put(req)
     else:
         serve(req)

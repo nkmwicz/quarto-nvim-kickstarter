@@ -1165,6 +1165,9 @@ function M.setup()
       desc = '[r]everse outline (section)' },
     { '<leader>bR', function() require('config.outline').open { manuscript = true } end,
       desc = '[R]everse outline (manuscript)' },
+    { '<leader>bC', function() require('config.chronology').open() end, desc = '[C]hronology' },
+    { '<leader>bu', function() require('config.sourcemap').open() end, desc = 'source [u]se map' },
+    { '<leader>bp', function() require('config.people').open() end, desc = '[p]eople: first mentions' },
 
     { '<leader>bL',  group = 'writing [L]og' },
     { '<leader>bLi', function() require('config.writinglog').init() end, desc = '[i]nit log' },
