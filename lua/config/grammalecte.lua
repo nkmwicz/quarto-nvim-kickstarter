@@ -26,6 +26,7 @@ local ns = vim.api.nvim_create_namespace 'grammalecte'
 
 local job = nil
 local failed = false -- set once the bridge can't start; stops retrying
+local leaving = false -- set on VimLeavePre; checks queued during exit must not restart or write to the bridge
 local next_id = 0
 local pending = {} -- request id -> callback(response)
 
@@ -172,7 +173,7 @@ local function show(buf, tick, resp)
 end
 
 local function start()
-  if job or failed then
+  if job or failed or leaving then
     return job
   end
   if vim.fn.filereadable(bridge) == 0 then
@@ -193,9 +194,12 @@ local function start()
         end
       end
     end,
-    on_exit = function()
-      job = nil
-      pending = {}
+    on_exit = function(exited)
+      -- A bridge that died after a failed send may already have a successor.
+      if job == exited or job == nil then
+        job = nil
+        pending = {}
+      end
     end,
   })
   if id <= 0 then
@@ -216,7 +220,13 @@ function M.request(req, cb)
   next_id = next_id + 1
   pending[next_id] = cb
   req.id = next_id
-  vim.fn.chansend(job, vim.json.encode(req) .. '\n')
+  -- job is only cleared by on_exit, which runs asynchronously: the bridge can
+  -- already be gone (crashed, or stopped on quit) while job still holds its id.
+  if not pcall(vim.fn.chansend, job, vim.json.encode(req) .. '\n') then
+    pending[next_id] = nil
+    job = nil
+    return false
+  end
   return true
 end
 
@@ -416,8 +426,10 @@ function M.setup()
   vim.api.nvim_create_autocmd('VimLeavePre', {
     group = group,
     callback = function()
+      leaving = true
       if job then
         vim.fn.jobstop(job)
+        job = nil
       end
     end,
   })
