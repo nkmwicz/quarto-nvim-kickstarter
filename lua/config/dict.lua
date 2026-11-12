@@ -1,10 +1,10 @@
 -- dict.lua: <leader>zd / <leader>zt — the dotfiles repo's `dict` command
--- (~/dotfiles/dict.sh: Webster's 1913 + Wiktionary definitions, WordNet
+-- (~/dotfiles/dict/dict.sh: Webster's 1913 + Wiktionary definitions, WordNet
 -- thesaurus) for the word under the cursor, or the visual selection, in a
 -- floating terminal.
 --
 -- `dict` is a bash function, not a binary, so it's run as
--- `bash -c 'source ~/dotfiles/dict.sh && dict ...'` — Neovim's own shells
+-- `bash -c 'source ~/dotfiles/dict/dict.sh && dict ...'` — Neovim's own shells
 -- never read ~/.bashrc.
 --
 -- <leader>zt opens dict's interactive thesaurus (fzf); ctrl-y there swaps
@@ -14,7 +14,7 @@
 
 local M = {}
 
-local dict_sh = vim.fn.expand '~/dotfiles/dict.sh'
+local dict_sh = vim.fn.expand '~/dotfiles/dict/dict.sh'
 
 -- Word under the cursor, or the visual selection (joined onto one line).
 local function target()

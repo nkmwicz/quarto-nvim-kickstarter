@@ -513,7 +513,7 @@ wk.add({
     -- since they don't collide with anything (unlike zl did with fold cmds).
     { "<leader>zg", "zg", desc = "mark word [g]ood" },
     { "<leader>zw", "zw", desc = "mark word [w]rong" },
-    -- ~/dotfiles/dict.sh in a float; see config/dict.lua.
+    -- ~/dotfiles/dict/dict.sh in a float; see config/dict.lua.
     { "<leader>zd", function() require('config.dict').define() end, desc = "[d]efine word (dict)" },
     { "<leader>zt", function() require('config.dict').thesaurus() end, desc = "[t]hesaurus: pick a synonym (ctrl-y swaps it in)" },
     -- French grammar (Grammalecte) and be-verb hints; both also run on

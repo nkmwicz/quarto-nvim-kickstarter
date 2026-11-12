@@ -88,7 +88,7 @@ end
 --- has the work; more than one can still come back. Returns nil
 --- if the lookup itself failed.
 function M.items_for_citekey(citekey)
-  local script = vim.fn.expand '~/dotfiles/zot.sh'
+  local script = vim.fn.expand '~/dotfiles/zot/zot.sh'
   local out = vim.fn.system {
     'bash', '-c', 'source "$0" && _zot_check_db && _zot_query citekeyitems "$1"', script, citekey,
   }
