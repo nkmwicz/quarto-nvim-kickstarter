@@ -27,6 +27,8 @@ end
 -- (config/beverbs.lua), adding an undefined citation from Zotero
 -- (config/citations.lua), and, when ltex is attached, <!-- ltex: ... -->
 -- magic comments.
+local CODE_ACTION_TIMEOUT = 500 -- ms; harper on a long section takes ~100
+
 local function code_action()
   local bufnr = vim.api.nvim_get_current_buf()
   local ltex_clients = vim.lsp.get_clients { bufnr = bufnr, name = 'ltex' }
@@ -64,11 +66,38 @@ local function code_action()
     end, vim.diagnostic.get(bufnr, { lnum = lnum })),
   }
 
-  local results = vim.lsp.buf_request_sync(bufnr, 'textDocument/codeAction', params, 3000)
+  -- One request per client, keeping whatever arrives within the deadline.
+  -- buf_request_sync waits for every client and drops all results if any one
+  -- times out, so a single hung server (e.g. otter-ls forwarding to a stopped
+  -- code-cell server) cost the full timeout and every LSP action with it.
+  local results, pending = {}, {}
+  for _, client in ipairs(clients) do
+    if client:supports_method('textDocument/codeAction', bufnr) then
+      local ok, id = client:request('textDocument/codeAction', params, function(err, result)
+        pending[client.id] = nil
+        if not err then
+          results[client.id] = result
+        end
+      end, bufnr)
+      if ok then
+        pending[client.id] = id
+      end
+    end
+  end
+  vim.wait(CODE_ACTION_TIMEOUT, function()
+    return next(pending) == nil
+  end, 5)
+  for client_id, request_id in pairs(pending) do
+    local client = vim.lsp.get_client_by_id(client_id)
+    if client then
+      client:cancel_request(request_id)
+      vim.notify(('[code action] %s did not answer in %d ms; skipped'):format(client.name, CODE_ACTION_TIMEOUT), vim.log.levels.DEBUG)
+    end
+  end
   local items = {}
 
-  for client_id, result in pairs(results or {}) do
-    for _, action in ipairs(result.result or {}) do
+  for client_id, result in pairs(results) do
+    for _, action in ipairs(result or {}) do
       table.insert(items, { label = action.title, kind = 'lsp', client_id = client_id, action = action })
     end
   end
