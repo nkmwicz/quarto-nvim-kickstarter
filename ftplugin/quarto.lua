@@ -105,3 +105,5 @@ vim.api.nvim_create_autocmd({ 'TextChanged', 'TextChangedI', 'BufWrite' }, {
   buffer = buf,
   callback = highlight_cells,
 })
+
+require('config.emphasis').attach(0)
