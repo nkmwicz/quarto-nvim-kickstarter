@@ -5,7 +5,8 @@
 --          add the work's BibTeX entry to the document's bibliography
 --          (config.citations, from the Better BibTeX export, as <leader>fz)
 --   <C-o>  open the book in zot's reader at the passage, every hit in it
---          highlighted (n/N between them), in a floating terminal
+--          highlighted (n/N between them), in a floating terminal; q there
+--          comes back to the picker, on the same passage, to read through several
 --   <C-y>  yank the passage, quoted, with its citation
 -- <leader>rL asks for a Zotero collection first (its subcollections too).
 --
@@ -103,8 +104,9 @@ local function add_to_bibliography(buf, citekey)
   vim.notify('[library] ' .. citekey .. " isn't in the Better BibTeX export, so no bibliography entry was added", vim.log.levels.WARN)
 end
 
---- zot's reader at a hit, in a floating terminal.
-function M.open_reader(book, hit)
+--- zot's reader at a hit, in a floating terminal; `on_close()`, if given,
+--- runs once the reader has quit and its window is gone.
+function M.open_reader(book, hit, on_close)
   local width = math.floor(vim.o.columns * 0.9)
   local height = math.floor(vim.o.lines * 0.85)
   local buf = vim.api.nvim_create_buf(false, true)
@@ -129,6 +131,9 @@ function M.open_reader(book, hit)
         if vim.api.nvim_buf_is_valid(buf) then
           vim.api.nvim_buf_delete(buf, { force = true })
         end
+        if on_close then
+          on_close()
+        end
       end)
     end,
   })
@@ -148,7 +153,14 @@ function M.open_reader(book, hit)
   vim.cmd.startinsert()
 end
 
-local function pick(result, origin)
+local function same_hit(a, b)
+  return a.book.attachment_key == b.book.attachment_key and a.hit.unit == b.hit.unit and a.hit.para == b.hit.para
+end
+
+--- The picker over a search's hits. `place` ({ entry, prompt }), after the
+--- reader, opens it again where it was left: the same filter typed, the same
+--- passage selected.
+local function pick(result, origin, place)
   local entries = M.entries(result)
   if #entries == 0 then
     vim.notify('[library] nothing found for: ' .. result.question, vim.log.levels.INFO)
@@ -173,10 +185,30 @@ local function pick(result, origin)
     return entry and entry.value
   end
 
+  local placed = false
   pickers
     .new({}, {
+      default_text = place and place.prompt or nil,
+      -- Called after each sort; only the first one puts the selection back,
+      -- so typing afterwards moves it as usual.
+      on_complete = {
+        function(picker)
+          if placed or not place then
+            return
+          end
+          placed = true
+          local i = 0
+          for entry in picker.manager:iter() do
+            i = i + 1
+            if same_hit(entry.value, place.entry) then
+              picker:set_selection(picker:get_row(i))
+              return
+            end
+          end
+        end,
+      },
       prompt_title = 'Library: ' .. result.question,
-      results_title = ('%d passages in %d books  ·  <CR> cite  <C-o> read  <C-y> yank'):format(#entries, #result.books),
+      results_title = ('%d passages in %d books  ·  <CR> cite  <C-o> read (q back here)  <C-y> yank'):format(#entries, #result.books),
       finder = finders.new_table {
         results = entries,
         entry_maker = function(e)
@@ -230,13 +262,17 @@ local function pick(result, origin)
             vim.notify('[library] ' .. why, vim.log.levels.INFO)
           end
         end)
+        -- Quitting the reader comes back here, to read through several.
         local function read()
+          local prompt = action_state.get_current_line()
           local e = chosen(prompt_bufnr)
           if e then
             -- After Telescope has closed: closing ends insert mode, which
             -- would leave the reader's terminal in normal mode.
             vim.schedule(function()
-              M.open_reader(e.book, e.hit)
+              M.open_reader(e.book, e.hit, function()
+                pick(result, origin, { entry = e, prompt = prompt })
+              end)
             end)
           end
         end
