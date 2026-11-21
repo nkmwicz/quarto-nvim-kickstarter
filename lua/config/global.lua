@@ -141,7 +141,9 @@ let g:currentmode={
 math.randomseed(os.time())
 local i = math.random(#animals)
 
-vim.opt.statusline = '%{%g:currentmode[mode()]%} Branch=%{v:lua.get_git_branch()} %* %t | %y | %* %= w-ct:%{v:lua.get_word_count()} c:%c l:%l/%L %p%% %#NonText# ' .. animals[i] .. ' %*'
+-- g:statusline_busy: a background job's progress (config.libsearch's
+-- library search), set and cleared by the job itself.
+vim.opt.statusline = '%{%g:currentmode[mode()]%} Branch=%{v:lua.get_git_branch()} %* %t | %y | %* %#WarningMsg#%{get(g:,"statusline_busy","")}%* %= w-ct:%{v:lua.get_word_count()} c:%c l:%l/%L %p%% %#NonText# ' .. animals[i] .. ' %*'
 
 -- hide cmdline when not used
 vim.opt.cmdheight = 1

@@ -295,6 +295,34 @@ local function pick(result, origin, place)
     :find()
 end
 
+local SPINNER = { '⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏' }
+
+--- A spinner and the seconds so far in the statusline (g:statusline_busy,
+--- shown by config.global's statusline) while the search runs, so a slow
+--- first search - Ollama loading the model - doesn't look hung. Returns the
+--- function that clears it.
+local function show_busy(label)
+  local started, frame = vim.uv.now(), 0
+  local timer = vim.uv.new_timer()
+  timer:start(
+    0,
+    120,
+    vim.schedule_wrap(function()
+      frame = frame % #SPINNER + 1
+      local seconds = math.floor((vim.uv.now() - started) / 1000)
+      local note = seconds >= 8 and ' (the first search loads the model)' or ''
+      vim.g.statusline_busy = (' %s %s %ds%s '):format(SPINNER[frame], label, seconds, note)
+      vim.cmd.redrawstatus()
+    end)
+  )
+  return function()
+    timer:stop()
+    timer:close()
+    vim.g.statusline_busy = nil
+    vim.cmd.redrawstatus()
+  end
+end
+
 --- Search the library for `question` (within `collection`, if given) and
 --- open the picker when the answer comes back.
 function M.search(question, collection)
@@ -311,9 +339,10 @@ function M.search(question, collection)
     vim.list_extend(args, { '--in', collection })
   end
   table.insert(args, question)
-  vim.notify('[library] searching' .. (collection and collection ~= '' and (' ' .. collection) or '') .. '…', vim.log.levels.INFO)
+  local done = show_busy('library: searching' .. (collection and collection ~= '' and (' ' .. collection) or '') .. '…')
   vim.system({ 'bash', '-c', 'source "$0" && zot "$@"', zot_sh, unpack(args) }, { text = true }, function(out)
     vim.schedule(function()
+      done()
       if out.code ~= 0 then
         local lines = vim.split(vim.trim(out.stderr or ''), '\n')
         local last = (lines[#lines] or ''):gsub('^zot: ', '')
