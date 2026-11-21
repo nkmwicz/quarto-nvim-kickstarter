@@ -119,7 +119,7 @@ function M.open_reader(book, hit)
     title = ' ' .. (book.title or 'zot') .. ' ',
     title_pos = 'center',
   })
-  vim.fn.jobstart({ 'bash', '-c', 'source "$0" && zot "$@"', zot_sh, unpack(M.open_args(book, hit)) }, {
+  local job = vim.fn.jobstart({ 'bash', '-c', 'source "$0" && zot "$@"', zot_sh, unpack(M.open_args(book, hit)) }, {
     term = true,
     on_exit = function()
       vim.schedule(function()
@@ -137,6 +137,14 @@ function M.open_reader(book, hit)
   for _, key in ipairs { '<Esc>', '<C-h>', '<C-j>', '<C-k>', '<C-l>' } do
     vim.keymap.set('t', key, key, { buffer = buf, nowait = true })
   end
+  -- The window is the reader's alone: whenever it has focus, keys go to the
+  -- reader, never to Neovim (whose q would start recording a macro). The
+  -- picker closing (or a click) can leave it in normal mode, so q there goes
+  -- to the reader too, and entering the window returns to terminal mode.
+  vim.keymap.set('n', 'q', function()
+    vim.fn.chansend(job, 'q')
+  end, { buffer = buf, nowait = true })
+  vim.api.nvim_create_autocmd({ 'BufEnter', 'WinEnter' }, { buffer = buf, command = 'startinsert' })
   vim.cmd.startinsert()
 end
 
@@ -225,7 +233,11 @@ local function pick(result, origin)
         local function read()
           local e = chosen(prompt_bufnr)
           if e then
-            M.open_reader(e.book, e.hit)
+            -- After Telescope has closed: closing ends insert mode, which
+            -- would leave the reader's terminal in normal mode.
+            vim.schedule(function()
+              M.open_reader(e.book, e.hit)
+            end)
           end
         end
         local function yank()
