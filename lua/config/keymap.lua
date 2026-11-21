@@ -390,6 +390,9 @@ wk.add({
     { "<leader>zd", function() require('config.dict').define() end, desc = "[d]efine selection (dict)", mode = "v" },
     { "<leader>zt", function() require('config.dict').thesaurus() end, desc = "[t]hesaurus for selection (ctrl-y swaps it in)", mode = "v" },
     { "<leader>zm", function() require('config.hintlog').missed() end, desc = "log a [m]issed hint over the selection", mode = "v" },
+    -- zot -s over the indexed Zotero library; see config/libsearch.lua.
+    { "<leader>rl", function() require('config.libsearch').ask() end, desc = "[l]ibrary: passages like the selection", mode = "v" },
+    { "<leader>rL", function() require('config.libsearch').ask_in() end, desc = "[L]ibrary, one collection: passages like the selection", mode = "v" },
 }, { mode = 'v' })
 
 -- insert mode
@@ -542,6 +545,9 @@ wk.add({
     -- since they don't collide with anything (unlike zl did with fold cmds).
     { "<leader>zg", "zg", desc = "mark word [g]ood" },
     { "<leader>zw", "zw", desc = "mark word [w]rong" },
+    -- zot -s over the indexed Zotero library; see config/libsearch.lua.
+    { "<leader>rl", function() require('config.libsearch').ask() end, desc = "[l]ibrary search by meaning (cite, read, yank)" },
+    { "<leader>rL", function() require('config.libsearch').ask_in() end, desc = "[L]ibrary search in one collection" },
     -- ~/dotfiles/dict/dict.sh in a float; see config/dict.lua.
     { "<leader>zd", function() require('config.dict').define() end, desc = "[d]efine word (dict)" },
     { "<leader>zt", function() require('config.dict').thesaurus() end, desc = "[t]hesaurus: pick a synonym (ctrl-y swaps it in)" },

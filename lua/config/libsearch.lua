@@ -1,0 +1,312 @@
+-- libsearch.lua: <leader>rl / <leader>rL — search the indexed Zotero library
+-- by meaning (the dotfiles repo's `zot -s --json`), for a question you type
+-- or the visual selection, and pick a passage in Telescope:
+--   <CR>   insert [@citekey, p. 66] at the cursor (after the selection), and
+--          add the work's BibTeX entry to the document's bibliography
+--          (config.citations, from the Better BibTeX export, as <leader>fz)
+--   <C-o>  open the book in zot's reader at the passage, every hit in it
+--          highlighted (n/N between them), in a floating terminal
+--   <C-y>  yank the passage, quoted, with its citation
+-- <leader>rL asks for a Zotero collection first (its subcollections too).
+--
+-- `zot` is a bash function, so it runs as `bash -c 'source zot.sh && zot ...'`
+-- (Neovim's shells never read ~/.bashrc). The search runs in the background:
+-- the question goes through Ollama (qwen3-embedding:8b), a few seconds, more
+-- the first time while the model loads. Only books indexed on this machine are
+-- searched (zot --embed; the index syncs through Zotero). The JSON's keys and
+-- `zot --open`'s options are a contract with ~/dotfiles (its CLAUDE.md).
+
+local M = {}
+
+local zot_sh = vim.fn.expand '~/dotfiles/zot/zot.sh'
+
+--- The visual selection on one line, or nil outside visual mode.
+local function selection()
+  local mode = vim.fn.mode()
+  if not mode:match '[vV\22]' then
+    return nil
+  end
+  local lines = vim.fn.getregion(vim.fn.getpos 'v', vim.fn.getpos '.', { type = mode })
+  vim.api.nvim_feedkeys(vim.keycode '<Esc>', 'nx', false)
+  return vim.trim(table.concat(lines, ' '))
+end
+
+--- One picker entry per hit, best book first and each book's hits in its
+--- order: { book = <book>, hit = <hit> }.
+function M.entries(result)
+  local out = {}
+  for _, book in ipairs(result.books or {}) do
+    for _, hit in ipairs(book.hits or {}) do
+      table.insert(out, { book = book, hit = hit })
+    end
+  end
+  return out
+end
+
+--- The Pandoc citation for a hit, or nil and why not. A page only when the
+--- printed number is known: zot's "PDF p. 230" is the file's page, not one
+--- to cite, so that gives a bare [@key].
+function M.citation(book, hit)
+  if not book.citekey or book.citekey == vim.NIL or book.citekey == '' then
+    return nil, "no citekey for this item (Better BibTeX hasn't given it one)"
+  end
+  local page = hit.cite and hit.cite:match '^p%. (.+)$'
+  if page then
+    return ('[@%s, p. %s]'):format(book.citekey, page), nil
+  end
+  return ('[@%s]'):format(book.citekey), hit.cite and (hit.cite .. ': the printed page is unknown, so no page') or nil
+end
+
+--- `zot --open`'s arguments for a hit: its book, at the hit, with all the
+--- book's hits highlighted.
+function M.open_args(book, hit)
+  return {
+    '--open',
+    book.item_key,
+    '--attachment',
+    book.attachment_key,
+    '--page',
+    tostring(hit.unit + 1),
+    '--para',
+    tostring(hit.para),
+    '--hits',
+    book.hits_arg,
+  }
+end
+
+local function surname(book)
+  local first = book.authors and book.authors[1]
+  if not first or first == vim.NIL then
+    return '?'
+  end
+  return first:match '(%S+)$' or first
+end
+
+local function insert(buf, win, cursor, text)
+  if not vim.api.nvim_buf_is_valid(buf) then
+    return
+  end
+  vim.api.nvim_set_current_win(win)
+  vim.api.nvim_win_set_cursor(win, cursor)
+  local line = vim.api.nvim_get_current_line()
+  local under = line:sub(cursor[2] + 1, cursor[2] + 1)
+  vim.api.nvim_put({ (under ~= '' and not under:match '%s') and (' ' .. text) or text }, 'c', true, true)
+end
+
+local function add_to_bibliography(buf, citekey)
+  for _, entry in ipairs(require('config.zotero').parse_entries() or {}) do
+    if entry.key == citekey then
+      require('config.citations').add_to_bibliography(buf, entry)
+      return
+    end
+  end
+  vim.notify('[library] ' .. citekey .. " isn't in the Better BibTeX export, so no bibliography entry was added", vim.log.levels.WARN)
+end
+
+--- zot's reader at a hit, in a floating terminal.
+function M.open_reader(book, hit)
+  local width = math.floor(vim.o.columns * 0.9)
+  local height = math.floor(vim.o.lines * 0.85)
+  local buf = vim.api.nvim_create_buf(false, true)
+  local win = vim.api.nvim_open_win(buf, true, {
+    relative = 'editor',
+    width = width,
+    height = height,
+    row = math.floor((vim.o.lines - height) / 2),
+    col = math.floor((vim.o.columns - width) / 2),
+    style = 'minimal',
+    border = 'rounded',
+    title = ' ' .. (book.title or 'zot') .. ' ',
+    title_pos = 'center',
+  })
+  vim.fn.jobstart({ 'bash', '-c', 'source "$0" && zot "$@"', zot_sh, unpack(M.open_args(book, hit)) }, {
+    term = true,
+    on_exit = function()
+      vim.schedule(function()
+        if vim.api.nvim_win_is_valid(win) then
+          vim.api.nvim_win_close(win, true)
+        end
+        if vim.api.nvim_buf_is_valid(buf) then
+          vim.api.nvim_buf_delete(buf, { force = true })
+        end
+      end)
+    end,
+  })
+  -- The global TermOpen keymaps (config.autocommands) would take these from
+  -- the reader (Esc closes its dialogs, ctrl-j/k move in them).
+  for _, key in ipairs { '<Esc>', '<C-h>', '<C-j>', '<C-k>', '<C-l>' } do
+    vim.keymap.set('t', key, key, { buffer = buf, nowait = true })
+  end
+  vim.cmd.startinsert()
+end
+
+local function pick(result, origin)
+  local entries = M.entries(result)
+  if #entries == 0 then
+    vim.notify('[library] nothing found for: ' .. result.question, vim.log.levels.INFO)
+    return
+  end
+  local finders = require 'telescope.finders'
+  local pickers = require 'telescope.pickers'
+  local previewers = require 'telescope.previewers'
+  local conf = require('telescope.config').values
+  local actions = require 'telescope.actions'
+  local action_state = require 'telescope.actions.state'
+  local entry_display = require 'telescope.pickers.entry_display'
+
+  local displayer = entry_display.create {
+    separator = ' ',
+    items = { { width = 4 }, { width = 18 }, { width = 11 }, { remaining = true } },
+  }
+
+  local function chosen(prompt_bufnr)
+    local entry = action_state.get_selected_entry()
+    actions.close(prompt_bufnr)
+    return entry and entry.value
+  end
+
+  pickers
+    .new({}, {
+      prompt_title = 'Library: ' .. result.question,
+      results_title = ('%d passages in %d books  ·  <CR> cite  <C-o> read  <C-y> yank'):format(#entries, #result.books),
+      finder = finders.new_table {
+        results = entries,
+        entry_maker = function(e)
+          local year = (e.book.year ~= vim.NIL and e.book.year) or ''
+          return {
+            value = e,
+            ordinal = table.concat({ surname(e.book), year, e.book.title or '', e.hit.text }, ' '),
+            display = function()
+              return displayer {
+                { ('%.2f'):format(e.hit.score), 'Number' },
+                { surname(e.book) .. ' ' .. year, 'Comment' },
+                { e.hit.cite, 'SpecialChar' },
+                { (e.hit.text:gsub('%s+', ' ')), 'Normal' },
+              }
+            end,
+          }
+        end,
+      },
+      -- Keep zot's order (best book first); typing still filters.
+      sorter = conf.generic_sorter {},
+      previewer = previewers.new_buffer_previewer {
+        title = 'Passage',
+        define_preview = function(self, entry)
+          local e = entry.value
+          local cite = M.citation(e.book, e.hit)
+          local lines = {
+            '**' .. (e.book.citation ~= vim.NIL and e.book.citation or e.book.title or '?') .. '**',
+            '',
+            ('%s  ·  %s  ·  score %.2f'):format(cite or '(no citekey)', e.hit.cite, e.hit.score),
+            '',
+          }
+          vim.list_extend(lines, vim.split(e.hit.text, '\n'))
+          vim.api.nvim_buf_set_lines(self.state.bufnr, 0, -1, false, lines)
+          vim.bo[self.state.bufnr].filetype = 'markdown'
+        end,
+      },
+      attach_mappings = function(prompt_bufnr, map)
+        actions.select_default:replace(function()
+          local e = chosen(prompt_bufnr)
+          if not e then
+            return
+          end
+          local cite, why = M.citation(e.book, e.hit)
+          if not cite then
+            vim.notify('[library] ' .. why, vim.log.levels.WARN)
+            return
+          end
+          insert(origin.buf, origin.win, origin.cursor, cite)
+          add_to_bibliography(origin.buf, e.book.citekey)
+          if why then
+            vim.notify('[library] ' .. why, vim.log.levels.INFO)
+          end
+        end)
+        local function read()
+          local e = chosen(prompt_bufnr)
+          if e then
+            M.open_reader(e.book, e.hit)
+          end
+        end
+        local function yank()
+          local e = chosen(prompt_bufnr)
+          if not e then
+            return
+          end
+          local cite = M.citation(e.book, e.hit) or (e.book.citation ~= vim.NIL and e.book.citation) or ''
+          local text = ('“%s” %s'):format((e.hit.text:gsub('%s+', ' ')), cite)
+          vim.fn.setreg('"', text)
+          vim.fn.setreg('+', text)
+          vim.notify('[library] yanked the passage with ' .. cite, vim.log.levels.INFO)
+        end
+        map({ 'i', 'n' }, '<C-o>', read)
+        map({ 'i', 'n' }, '<C-y>', yank)
+        return true
+      end,
+    })
+    :find()
+end
+
+--- Search the library for `question` (within `collection`, if given) and
+--- open the picker when the answer comes back.
+function M.search(question, collection)
+  if not question or vim.trim(question) == '' then
+    return
+  end
+  if vim.fn.filereadable(zot_sh) == 0 then
+    vim.notify('[library] ' .. zot_sh .. ' not found', vim.log.levels.ERROR)
+    return
+  end
+  local origin = { buf = vim.api.nvim_get_current_buf(), win = vim.api.nvim_get_current_win(), cursor = vim.api.nvim_win_get_cursor(0) }
+  local args = { '-s', '--json' }
+  if collection and collection ~= '' then
+    vim.list_extend(args, { '--in', collection })
+  end
+  table.insert(args, question)
+  vim.notify('[library] searching' .. (collection and collection ~= '' and (' ' .. collection) or '') .. '…', vim.log.levels.INFO)
+  vim.system({ 'bash', '-c', 'source "$0" && zot "$@"', zot_sh, unpack(args) }, { text = true }, function(out)
+    vim.schedule(function()
+      if out.code ~= 0 then
+        local lines = vim.split(vim.trim(out.stderr or ''), '\n')
+        local last = (lines[#lines] or ''):gsub('^zot: ', '')
+        vim.notify('[library] ' .. (last ~= '' and last or ('zot exited with ' .. out.code)), vim.log.levels.ERROR)
+        return
+      end
+      local ok, result = pcall(vim.json.decode, out.stdout)
+      if not ok or type(result) ~= 'table' then
+        vim.notify("[library] zot's answer made no sense", vim.log.levels.ERROR)
+        return
+      end
+      pick(result, origin)
+    end)
+  end)
+end
+
+--- <leader>rl: the selection, or a question typed at the prompt.
+function M.ask()
+  local text = selection()
+  if text then
+    M.search(text)
+    return
+  end
+  vim.ui.input({ prompt = 'Search the library: ' }, M.search)
+end
+
+--- <leader>rL: a collection first, then the selection or a question.
+function M.ask_in()
+  local text = selection()
+  vim.ui.input({ prompt = 'Collection: ' }, function(collection)
+    if not collection or collection == '' then
+      return
+    end
+    if text then
+      M.search(text, collection)
+    else
+      vim.ui.input({ prompt = 'Search ' .. collection .. ': ' }, function(q)
+        M.search(q, collection)
+      end)
+    end
+  end)
+end
+
+return M
