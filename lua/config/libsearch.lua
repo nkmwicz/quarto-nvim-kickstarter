@@ -8,6 +8,9 @@
 --          highlighted (n/N between them), in a floating terminal; q there
 --          comes back to the picker, on the same passage, to read through several
 --   <C-y>  yank the passage, quoted, with its citation
+--   <Tab>  mark several passages: <CR> then cites them all as one citation,
+--          [@a, pp. 3, 40; @b, p. 12] (a book's pages merged), and <C-y>
+--          yanks each, quoted with its own citation
 -- <leader>rL asks for a Zotero collection first (its subcollections too).
 --
 -- `zot` is a bash function, so it runs as `bash -c 'source zot.sh && zot ...'`
@@ -56,6 +59,56 @@ function M.citation(book, hit)
     return ('[@%s, p. %s]'):format(book.citekey, page), nil
   end
   return ('[@%s]'):format(book.citekey), hit.cite and (hit.cite .. ': the printed page is unknown, so no page') or nil
+end
+
+--- One Pandoc citation for several picks ({ book, hit }, in the order
+--- picked): one cite per work, in order of its first pick, its printed pages
+--- merged ("p. 3", "pp. 3, 40"; numbers sorted, repeats dropped). A work
+--- with no printed page among its picks is cited bare. Returns the citation
+--- (nil when no pick has a citekey), the citekeys in it, and notes on what
+--- was dropped.
+function M.citations(picks)
+  local order, pages, notes = {}, {}, {}
+  for _, p in ipairs(picks) do
+    local key = p.book.citekey
+    if not key or key == vim.NIL or key == '' then
+      table.insert(notes, ('%s: no citekey, left out'):format(p.book.title or '?'))
+    else
+      if not pages[key] then
+        pages[key] = {}
+        table.insert(order, key)
+      end
+      local page = p.hit.cite and p.hit.cite:match '^p%. (.+)$'
+      if page then
+        if not vim.tbl_contains(pages[key], page) then
+          table.insert(pages[key], page)
+        end
+      elseif p.hit.cite then
+        table.insert(notes, ('@%s %s: the printed page is unknown, so no page'):format(key, p.hit.cite))
+      end
+    end
+  end
+  if #order == 0 then
+    return nil, {}, notes
+  end
+  local cites = {}
+  for _, key in ipairs(order) do
+    local ps = pages[key]
+    local numeric = vim.iter(ps):all(function(x)
+      return tonumber(x) ~= nil
+    end)
+    if numeric then
+      table.sort(ps, function(a, b)
+        return tonumber(a) < tonumber(b)
+      end)
+    end
+    if #ps == 0 then
+      table.insert(cites, '@' .. key)
+    else
+      table.insert(cites, ('@%s, %s %s'):format(key, #ps == 1 and 'p.' or 'pp.', table.concat(ps, ', ')))
+    end
+  end
+  return '[' .. table.concat(cites, '; ') .. ']', order, notes
 end
 
 --- `zot --open`'s arguments for a hit: its book, at the hit, with all the
@@ -185,6 +238,20 @@ local function pick(result, origin, place)
     return entry and entry.value
   end
 
+  -- The passages marked with <Tab>, in the order marked; else the one under
+  -- the cursor.
+  local function chosen_all(prompt_bufnr)
+    local marked = action_state.get_current_picker(prompt_bufnr):get_multi_selection()
+    if #marked == 0 then
+      local e = chosen(prompt_bufnr)
+      return e and { e } or {}
+    end
+    actions.close(prompt_bufnr)
+    return vim.tbl_map(function(entry)
+      return entry.value
+    end, marked)
+  end
+
   local placed = false
   pickers
     .new({}, {
@@ -208,7 +275,7 @@ local function pick(result, origin, place)
         end,
       },
       prompt_title = 'Library: ' .. result.question,
-      results_title = ('%d passages in %d books  ·  <CR> cite  <C-o> read (q back here)  <C-y> yank'):format(#entries, #result.books),
+      results_title = ('%d passages in %d books  ·  <Tab> mark  <CR> cite  <C-o> read (q back here)  <C-y> yank'):format(#entries, #result.books),
       finder = finders.new_table {
         results = entries,
         entry_maker = function(e)
@@ -247,19 +314,21 @@ local function pick(result, origin, place)
       },
       attach_mappings = function(prompt_bufnr, map)
         actions.select_default:replace(function()
-          local e = chosen(prompt_bufnr)
-          if not e then
+          local picks = chosen_all(prompt_bufnr)
+          if #picks == 0 then
             return
           end
-          local cite, why = M.citation(e.book, e.hit)
+          local cite, keys, notes = M.citations(picks)
           if not cite then
-            vim.notify('[library] ' .. why, vim.log.levels.WARN)
+            vim.notify('[library] ' .. table.concat(notes, '\n'), vim.log.levels.WARN)
             return
           end
           insert(origin.buf, origin.win, origin.cursor, cite)
-          add_to_bibliography(origin.buf, e.book.citekey)
-          if why then
-            vim.notify('[library] ' .. why, vim.log.levels.INFO)
+          for _, key in ipairs(keys) do
+            add_to_bibliography(origin.buf, key)
+          end
+          if #notes > 0 then
+            vim.notify('[library] ' .. table.concat(notes, '\n'), vim.log.levels.INFO)
           end
         end)
         -- Quitting the reader comes back here, to read through several.
@@ -276,16 +345,21 @@ local function pick(result, origin, place)
             end)
           end
         end
+        -- Each passage quoted with its own citation, a blank line between.
         local function yank()
-          local e = chosen(prompt_bufnr)
-          if not e then
+          local picks = chosen_all(prompt_bufnr)
+          if #picks == 0 then
             return
           end
-          local cite = M.citation(e.book, e.hit) or (e.book.citation ~= vim.NIL and e.book.citation) or ''
-          local text = ('“%s” %s'):format((e.hit.text:gsub('%s+', ' ')), cite)
+          local parts = {}
+          for _, e in ipairs(picks) do
+            local cite = M.citation(e.book, e.hit) or (e.book.citation ~= vim.NIL and e.book.citation) or ''
+            table.insert(parts, ('“%s” %s'):format((e.hit.text:gsub('%s+', ' ')), cite))
+          end
+          local text = table.concat(parts, '\n\n')
           vim.fn.setreg('"', text)
           vim.fn.setreg('+', text)
-          vim.notify('[library] yanked the passage with ' .. cite, vim.log.levels.INFO)
+          vim.notify(('[library] yanked %d passage%s with citations'):format(#picks, #picks == 1 and '' or 's'), vim.log.levels.INFO)
         end
         map({ 'i', 'n' }, '<C-o>', read)
         map({ 'i', 'n' }, '<C-y>', yank)

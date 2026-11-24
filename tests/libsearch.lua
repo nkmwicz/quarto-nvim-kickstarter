@@ -47,6 +47,28 @@ check('pdf page: says why', why ~= nil and why:match 'PDF p%. 134' ~= nil, true)
 check('roman page', libsearch.citation(book, { cite = 'p. xiv' }), '[@gurkan2014, p. xiv]')
 check('no citekey', libsearch.citation(other, other.hits[1]), nil)
 
+-- Several picks: one citation, a work's pages merged and sorted, order of
+-- first pick kept, a work with no printed page cited bare.
+local function pk(b, cite_)
+  return { book = b, hit = { cite = cite_ } }
+end
+local b2 = { citekey = 'braudel1972', title = 'The Mediterranean' }
+local b3 = { citekey = 'setton1984', title = 'The Papacy' }
+local nokey = { citekey = vim.NIL, title = 'Anonymous' }
+local c, keys, notes = libsearch.citations { pk(book, 'p. 66'), pk(b2, 'p. 12'), pk(book, 'p. 3'), pk(book, 'p. 66') }
+check('merge: cite', c, '[@gurkan2014, pp. 3, 66; @braudel1972, p. 12]')
+check('merge: keys', keys, { 'gurkan2014', 'braudel1972' })
+check('merge: no notes', notes, {})
+c, keys, notes = libsearch.citations { pk(b3, 'PDF p. 9'), pk(book, 'p. xiv'), pk(book, 'p. ix'), pk(nokey, 'p. 1') }
+check('bare and roman', c, '[@setton1984; @gurkan2014, pp. xiv, ix]')
+check('bare and roman: keys', keys, { 'setton1984', 'gurkan2014' })
+check('bare and roman: notes', #notes, 2)
+c, keys = libsearch.citations { pk(book, 'PDF p. 1'), pk(book, 'p. 5') }
+check('known page beats unknown', c, '[@gurkan2014, p. 5]')
+check('single pick', (libsearch.citations { pk(book, 'p. 66') }), '[@gurkan2014, p. 66]')
+c, keys, notes = libsearch.citations { pk(nokey, 'p. 1') }
+check('no citekey at all', { c, keys, #notes }, { nil, {}, 1 })
+
 -- zot --open at the hit, with the book's hits.
 check('open args', libsearch.open_args(book, book.hits[1]), {
   '--open',
