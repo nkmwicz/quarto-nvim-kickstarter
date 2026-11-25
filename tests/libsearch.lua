@@ -83,6 +83,23 @@ check('open args', libsearch.open_args(book, book.hits[1]), {
   '65.2-66.0,133.0-',
 })
 
+-- Views: a hit's `type` (from zot's Jev) puts it in one; 'all' has every hit.
+local typed = vim.deepcopy(book)
+typed.hits[1].type, typed.hits[2].type = 'secondary', 'notes'
+local result = { question = 'q', books = { typed } }
+check(
+  'view: notes',
+  vim.tbl_map(function(e)
+    return e.hit.unit
+  end, libsearch.entries(result, 'notes')),
+  { 133 }
+)
+check('view: all', #libsearch.entries(result, 'all'), 2)
+check('views with hits', libsearch.views(result), { 'all', 'secondary', 'notes' })
+check('views without types', libsearch.views { question = 'q', books = { book } }, { 'all' })
+check('open args in a view: only its hits', libsearch.open_args(typed, typed.hits[2], 'notes')[10], '133.0-')
+check('open args in all', libsearch.open_args(typed, typed.hits[2], 'all')[10], '65.2-66.0,133.0-')
+
 if failures > 0 then
   print(failures .. ' failure(s)')
   os.exit(1)

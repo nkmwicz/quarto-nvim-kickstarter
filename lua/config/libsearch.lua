@@ -11,6 +11,11 @@
 --   <Tab>  mark several passages: <CR> then cites them all as one citation,
 --          [@a, pp. 3, 40; @b, p. 12] (a book's pages merged), and <C-y>
 --          yanks each, quoted with its own citation
+--   <C-t>  the next view: all passages, then primary sources, secondary
+--          (scholars' writing), notes (footnotes, endnotes) - each hit's
+--          `type`, from zot's Jev reranking; a view with no hits is
+--          skipped. The view is in the prompt's title, and <C-o> from it
+--          highlights only its hits in the reader.
 -- <leader>rL asks for a Zotero collection first (its subcollections too).
 --
 -- `zot` is a bash function, so it runs as `bash -c 'source zot.sh && zot ...'`
@@ -35,16 +40,33 @@ local function selection()
   return vim.trim(table.concat(lines, ' '))
 end
 
---- One picker entry per hit, best book first and each book's hits in its
---- order: { book = <book>, hit = <hit> }.
-function M.entries(result)
+M.VIEWS = { 'all', 'primary', 'secondary', 'notes' }
+
+--- Whether a hit is in a view (one of M.VIEWS): every hit is in 'all', the
+--- others go by the hit's `type` (zot leaves it out when Jev didn't settle it).
+local function in_view(hit, view)
+  return not view or view == 'all' or hit.type == view
+end
+
+--- One picker entry per hit in `view` (default 'all'), best book first and
+--- each book's hits in its order: { book = <book>, hit = <hit> }.
+function M.entries(result, view)
   local out = {}
   for _, book in ipairs(result.books or {}) do
     for _, hit in ipairs(book.hits or {}) do
-      table.insert(out, { book = book, hit = hit })
+      if in_view(hit, view) then
+        table.insert(out, { book = book, hit = hit })
+      end
     end
   end
   return out
+end
+
+--- The views with any hits, in M.VIEWS' order ('all' always).
+function M.views(result)
+  return vim.tbl_filter(function(view)
+    return view == 'all' or #M.entries(result, view) > 0
+  end, M.VIEWS)
 end
 
 --- The Pandoc citation for a hit, or nil and why not. A page only when the
@@ -111,9 +133,21 @@ function M.citations(picks)
   return '[' .. table.concat(cites, '; ') .. ']', order, notes
 end
 
---- `zot --open`'s arguments for a hit: its book, at the hit, with all the
---- book's hits highlighted.
-function M.open_args(book, hit)
+--- `zot --open`'s arguments for a hit: its book, at the hit, with the
+--- book's hits in `view` highlighted (all of them by default). hits_arg
+--- holds one passage per hit, in the hits' order.
+function M.open_args(book, hit, view)
+  local hits_arg = book.hits_arg
+  local parts = vim.split(hits_arg or '', ',', { plain = true })
+  if view and view ~= 'all' and #parts == #(book.hits or {}) then
+    local kept = {}
+    for i, h in ipairs(book.hits) do
+      if in_view(h, view) then
+        table.insert(kept, parts[i])
+      end
+    end
+    hits_arg = table.concat(kept, ',')
+  end
   return {
     '--open',
     book.item_key,
@@ -124,7 +158,7 @@ function M.open_args(book, hit)
     '--para',
     tostring(hit.para),
     '--hits',
-    book.hits_arg,
+    hits_arg,
   }
 end
 
@@ -157,9 +191,10 @@ local function add_to_bibliography(buf, citekey)
   vim.notify('[library] ' .. citekey .. " isn't in the Better BibTeX export, so no bibliography entry was added", vim.log.levels.WARN)
 end
 
---- zot's reader at a hit, in a floating terminal; `on_close()`, if given,
---- runs once the reader has quit and its window is gone.
-function M.open_reader(book, hit, on_close)
+--- zot's reader at a hit, in a floating terminal (the hits of `view`
+--- highlighted); `on_close()`, if given, runs once the reader has quit and
+--- its window is gone.
+function M.open_reader(book, hit, on_close, view)
   local width = math.floor(vim.o.columns * 0.9)
   local height = math.floor(vim.o.lines * 0.85)
   local buf = vim.api.nvim_create_buf(false, true)
@@ -174,7 +209,7 @@ function M.open_reader(book, hit, on_close)
     title = ' ' .. (book.title or 'zot') .. ' ',
     title_pos = 'center',
   })
-  local job = vim.fn.jobstart({ 'bash', '-c', 'source "$0" && zot "$@"', zot_sh, unpack(M.open_args(book, hit)) }, {
+  local job = vim.fn.jobstart({ 'bash', '-c', 'source "$0" && zot "$@"', zot_sh, unpack(M.open_args(book, hit, view)) }, {
     term = true,
     on_exit = function()
       vim.schedule(function()
@@ -210,11 +245,15 @@ local function same_hit(a, b)
   return a.book.attachment_key == b.book.attachment_key and a.hit.unit == b.hit.unit and a.hit.para == b.hit.para
 end
 
---- The picker over a search's hits. `place` ({ entry, prompt }), after the
---- reader, opens it again where it was left: the same filter typed, the same
---- passage selected.
+local TAGS = { primary = 'prim', secondary = 'sec', notes = 'note' }
+
+--- The picker over a search's hits. `place` ({ entry, prompt, view }), after
+--- the reader or <C-t>, opens it again where it was left: the same view, the
+--- same filter typed, the same passage selected.
 local function pick(result, origin, place)
-  local entries = M.entries(result)
+  local views = M.views(result)
+  local view = place and place.view or 'all'
+  local entries = M.entries(result, view)
   if #entries == 0 then
     vim.notify('[library] nothing found for: ' .. result.question, vim.log.levels.INFO)
     return
@@ -229,7 +268,7 @@ local function pick(result, origin, place)
 
   local displayer = entry_display.create {
     separator = ' ',
-    items = { { width = 4 }, { width = 18 }, { width = 11 }, { remaining = true } },
+    items = { { width = 4 }, { width = 4 }, { width = 18 }, { width = 11 }, { remaining = true } },
   }
 
   local function chosen(prompt_bufnr)
@@ -260,7 +299,7 @@ local function pick(result, origin, place)
       -- so typing afterwards moves it as usual.
       on_complete = {
         function(picker)
-          if placed or not place then
+          if placed or not place or not place.entry then
             return
           end
           placed = true
@@ -274,8 +313,18 @@ local function pick(result, origin, place)
           end
         end,
       },
-      prompt_title = 'Library: ' .. result.question,
-      results_title = ('%d passages in %d books  ·  <Tab> mark  <CR> cite  <C-o> read (q back here)  <C-y> yank'):format(#entries, #result.books),
+      prompt_title = (view ~= 'all' and ('Library [' .. view:upper() .. ']: ') or 'Library: ') .. result.question,
+      results_title = ('%d passages  ·  <Tab> mark  <CR> cite  <C-o> read (q back here)  <C-y> yank%s'):format(
+        #entries,
+        #views > 1
+            and ('  <C-t> view: ' .. table.concat(
+              vim.tbl_map(function(v)
+                return v == view and ('[' .. v:upper() .. ']') or v
+              end, views),
+              ' '
+            ))
+          or ''
+      ),
       finder = finders.new_table {
         results = entries,
         entry_maker = function(e)
@@ -286,6 +335,7 @@ local function pick(result, origin, place)
             display = function()
               return displayer {
                 { ('%.2f'):format(e.hit.score), 'Number' },
+                { TAGS[e.hit.type] or '', 'Type' },
                 { surname(e.book) .. ' ' .. year, 'Comment' },
                 { e.hit.cite, 'SpecialChar' },
                 { (e.hit.text:gsub('%s+', ' ')), 'Normal' },
@@ -304,7 +354,13 @@ local function pick(result, origin, place)
           local lines = {
             '**' .. (e.book.citation ~= vim.NIL and e.book.citation or e.book.title or '?') .. '**',
             '',
-            ('%s  ·  %s  ·  score %.2f'):format(cite or '(no citekey)', e.hit.cite, e.hit.score),
+            ('%s  ·  %s  ·  score %.2f%s%s'):format(
+              cite or '(no citekey)',
+              e.hit.cite,
+              e.hit.score,
+              e.hit.jev and ('  ·  jev %.2f'):format(e.hit.jev) or '',
+              e.hit.type and ('  ·  ' .. e.hit.type) or ''
+            ),
             '',
           }
           vim.list_extend(lines, vim.split(e.hit.text, '\n'))
@@ -340,8 +396,8 @@ local function pick(result, origin, place)
             -- would leave the reader's terminal in normal mode.
             vim.schedule(function()
               M.open_reader(e.book, e.hit, function()
-                pick(result, origin, { entry = e, prompt = prompt })
-              end)
+                pick(result, origin, { entry = e, prompt = prompt, view = view })
+              end, view)
             end)
           end
         end
@@ -361,8 +417,26 @@ local function pick(result, origin, place)
           vim.fn.setreg('+', text)
           vim.notify(('[library] yanked %d passage%s with citations'):format(#picks, #picks == 1 and '' or 's'), vim.log.levels.INFO)
         end
+        -- The next view with hits; the filter typed is kept, marks aren't.
+        local function next_view()
+          if #views < 2 then
+            return
+          end
+          local prompt = action_state.get_current_line()
+          local at = 1
+          for i, v in ipairs(views) do
+            if v == view then
+              at = i
+            end
+          end
+          actions.close(prompt_bufnr)
+          vim.schedule(function()
+            pick(result, origin, { prompt = prompt, view = views[at % #views + 1] })
+          end)
+        end
         map({ 'i', 'n' }, '<C-o>', read)
         map({ 'i', 'n' }, '<C-y>', yank)
+        map({ 'i', 'n' }, '<C-t>', next_view)
         return true
       end,
     })
