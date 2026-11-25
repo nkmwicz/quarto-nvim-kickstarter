@@ -11,10 +11,11 @@
 --   <Tab>  mark several passages: <CR> then cites them all as one citation,
 --          [@a, pp. 3, 40; @b, p. 12] (a book's pages merged), and <C-y>
 --          yanks each, quoted with its own citation
---   <C-t>  the next view: all passages, then primary sources, secondary
---          (scholars' writing), notes (footnotes, endnotes) - each hit's
---          `type`, from zot's Jev reranking; a view with no hits is
---          skipped. The view is in the prompt's title, and <C-o> from it
+--   <C-t>  the next view: all passages; when the search is a claim, those
+--          for it and against it (each hit's `stance`; one that weighs both
+--          is in both); then primary sources, secondary (scholars'
+--          writing), notes (footnotes, endnotes) - each hit's `type`. Both
+--          come from zot's Jev reranking; a view with no hits is skipped. The view is in the prompt's title, and <C-o> from it
 --          highlights only its hits in the reader.
 -- <leader>rL asks for a Zotero collection first (its subcollections too).
 --
@@ -40,12 +41,19 @@ local function selection()
   return vim.trim(table.concat(lines, ' '))
 end
 
-M.VIEWS = { 'all', 'primary', 'secondary', 'notes' }
+M.VIEWS = { 'all', 'for', 'against', 'primary', 'secondary', 'notes' }
 
---- Whether a hit is in a view (one of M.VIEWS): every hit is in 'all', the
---- others go by the hit's `type` (zot leaves it out when Jev didn't settle it).
+--- Whether a hit is in a view (one of M.VIEWS): every hit is in 'all';
+--- 'for' and 'against' go by the hit's `stance` ('both' is in both), the
+--- others by its `type` (zot leaves either out when Jev didn't settle it).
 local function in_view(hit, view)
-  return not view or view == 'all' or hit.type == view
+  if not view or view == 'all' then
+    return true
+  end
+  if view == 'for' or view == 'against' then
+    return hit.stance == view or hit.stance == 'both'
+  end
+  return hit.type == view
 end
 
 --- One picker entry per hit in `view` (default 'all'), best book first and
@@ -246,6 +254,7 @@ local function same_hit(a, b)
 end
 
 local TAGS = { primary = 'prim', secondary = 'sec', notes = 'note' }
+local SIDES = { ['for'] = '+', against = '−', both = '±' }
 
 --- The picker over a search's hits. `place` ({ entry, prompt, view }), after
 --- the reader or <C-t>, opens it again where it was left: the same view, the
@@ -268,7 +277,7 @@ local function pick(result, origin, place)
 
   local displayer = entry_display.create {
     separator = ' ',
-    items = { { width = 4 }, { width = 4 }, { width = 18 }, { width = 11 }, { remaining = true } },
+    items = { { width = 4 }, { width = 5 }, { width = 18 }, { width = 11 }, { remaining = true } },
   }
 
   local function chosen(prompt_bufnr)
@@ -335,7 +344,7 @@ local function pick(result, origin, place)
             display = function()
               return displayer {
                 { ('%.2f'):format(e.hit.score), 'Number' },
-                { TAGS[e.hit.type] or '', 'Type' },
+                { (TAGS[e.hit.type] or '') .. (SIDES[e.hit.stance] or ''), 'Type' },
                 { surname(e.book) .. ' ' .. year, 'Comment' },
                 { e.hit.cite, 'SpecialChar' },
                 { (e.hit.text:gsub('%s+', ' ')), 'Normal' },
@@ -354,12 +363,13 @@ local function pick(result, origin, place)
           local lines = {
             '**' .. (e.book.citation ~= vim.NIL and e.book.citation or e.book.title or '?') .. '**',
             '',
-            ('%s  ·  %s  ·  score %.2f%s%s'):format(
+            ('%s  ·  %s  ·  score %.2f%s%s%s'):format(
               cite or '(no citekey)',
               e.hit.cite,
               e.hit.score,
               e.hit.jev and ('  ·  jev %.2f'):format(e.hit.jev) or '',
-              e.hit.type and ('  ·  ' .. e.hit.type) or ''
+              e.hit.type and ('  ·  ' .. e.hit.type) or '',
+              e.hit.stance and ('  ·  ' .. (e.hit.stance == 'both' and 'for and against' or e.hit.stance) .. ' the claim') or ''
             ),
             '',
           }

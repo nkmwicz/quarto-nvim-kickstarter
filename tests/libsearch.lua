@@ -100,6 +100,18 @@ check('views without types', libsearch.views { question = 'q', books = { book } 
 check('open args in a view: only its hits', libsearch.open_args(typed, typed.hits[2], 'notes')[10], '133.0-')
 check('open args in all', libsearch.open_args(typed, typed.hits[2], 'all')[10], '65.2-66.0,133.0-')
 
+-- For and against: a hit's `stance`, when the search is a claim; 'both' is in both.
+typed.hits[1].stance, typed.hits[2].stance = 'for', 'both'
+check('view: for', #libsearch.entries(result, 'for'), 2)
+check(
+  'view: against',
+  vim.tbl_map(function(e)
+    return e.hit.unit
+  end, libsearch.entries(result, 'against')),
+  { 133 }
+)
+check('views with sides', libsearch.views(result), { 'all', 'for', 'against', 'secondary', 'notes' })
+
 if failures > 0 then
   print(failures .. ' failure(s)')
   os.exit(1)
